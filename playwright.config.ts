@@ -2,8 +2,9 @@ import { defineConfig, devices } from "@playwright/test";
 
 // E2E runs its own production server on :3110 against the fake ton-observer on :3999,
 // so it never collides with `pnpm dev` on :3100. The @real spec uses REAL_* variables instead.
-export const E2E_PORT = 3110;
-export const FAKE_URL = "http://127.0.0.1:3999";
+export const E2E_PORT = Number(process.env.E2E_PORT ?? 3110);
+export const FAKE_PORT = Number(process.env.E2E_FAKE_PORT ?? 3999);
+export const FAKE_URL = `http://127.0.0.1:${FAKE_PORT}`;
 export const E2E_SECRET = "e2e-session-secret-e2e-session-secret-0123";
 
 const real = process.env.E2E_REAL === "1";
@@ -17,7 +18,7 @@ export default defineConfig({
   timeout: 30_000,
   reporter: [["list"]],
   use: {
-    baseURL: real ? (process.env.REAL_DASHBOARD_URL ?? "http://127.0.0.1:3100") : `http://127.0.0.1:${E2E_PORT}`,
+    baseURL: real ? (process.env.REAL_DASHBOARD_URL ?? `http://127.0.0.1:${process.env.PORT ?? 3100}`) : `http://127.0.0.1:${E2E_PORT}`,
     channel: "chrome",
     trace: "retain-on-failure",
   },
@@ -29,7 +30,7 @@ export default defineConfig({
           command: "node tests/fake-observer/server.mjs",
           url: `${FAKE_URL}/health/ready`,
           reuseExistingServer: process.env.E2E_REUSE === "1",
-          env: { FAKE_OBSERVER_PORT: "3999" },
+          env: { FAKE_OBSERVER_PORT: String(FAKE_PORT) },
         },
         {
           command: `pnpm exec next build && pnpm exec next start -H 127.0.0.1 -p ${E2E_PORT}`,

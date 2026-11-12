@@ -29,7 +29,8 @@ export function assertEnv(source: Record<string, string | undefined>): void {
     parseEnv(source);
   } catch (error) {
     if (error instanceof EnvError) {
-      console.error(`${error.message} (SESSION_SECRET needs at least 32 characters)`);
+      const hint = error.variables.includes("SESSION_SECRET") ? " (SESSION_SECRET needs at least 32 characters)" : "";
+      console.error(`${error.message}${hint}`);
       process.exit(1);
     }
     throw error;

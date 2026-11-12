@@ -143,7 +143,8 @@ export async function callUpstream(
   let text: string;
   try {
     text = await response.text();
-  } catch {
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "TimeoutError") throw new ProxyError(504, "api_timeout");
     throw new ProxyError(502, "api_unreachable");
   }
   if (text.length === 0) return { status: response.status, body: undefined };

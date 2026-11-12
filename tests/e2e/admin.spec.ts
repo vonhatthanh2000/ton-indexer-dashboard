@@ -1,5 +1,4 @@
-import { expect, test } from "@playwright/test";
-import { ADMIN_KEY, ALPHA_ID, ALPHA_KEY, CSRF, USDT_FRIENDLY, USDT_RAW, apiSignIn, resetFake, setScenario } from "./helpers";
+import { ADMIN_KEY, ALPHA_ID, ALPHA_KEY, CSRF, USDT_FRIENDLY, USDT_RAW, apiSignIn, clearCalls, fakeCalls, resetFake, setScenario, expect, test, uiSignIn } from "./helpers";
 
 test.beforeEach(async ({ page, request }) => {
   await resetFake(request);
@@ -26,7 +25,9 @@ test("create project shows the key once, then the list and a toast; duplicates a
   await page.goto("/admin/projects/new");
   await page.getByLabel("Project name").fill("demo");
   await page.getByRole("button", { name: "Create project" }).click();
-  await expect(page.getByText("A project with this name already exists.")).toBeVisible();
+  const field = page.getByLabel("Project name");
+  await expect(field).toHaveAttribute("aria-invalid", "true");
+  await expect(field).toHaveAccessibleDescription(/A project with this name already exists\./);
 });
 
 test("rotating a key shows a new one and the old key stops working", async ({ page, browser }) => {
@@ -36,15 +37,18 @@ test("rotating a key shows a new one and the old key stops working", async ({ pa
   await page.getByRole("dialog", { name: "Rotate API key?" }).getByRole("button", { name: "Rotate API key" }).click();
   const modal = page.getByRole("dialog", { name: "Project API key" });
   await expect(modal).toBeVisible();
+  const newKey = (await modal.locator(".mono-box span").first().textContent())!.trim();
+  expect(newKey).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  expect(newKey).not.toBe(ALPHA_KEY);
   await modal.getByRole("button", { name: "Done" }).click();
 
-  const other = await browser.newContext();
-  const login = await other.request.post(new URL("/api/auth/login", page.url()).toString(), {
-    headers: CSRF,
-    data: { role: "project", key: ALPHA_KEY },
-  });
-  expect(login.status()).toBe(401);
-  expect(await login.json()).toEqual({ error: "invalid_key" });
+  const other = await browser.newContext({ baseURL: new URL(page.url()).origin });
+  const oldKeyPage = await other.newPage();
+  await uiSignIn(oldKeyPage, "project", ALPHA_KEY);
+  await expect(oldKeyPage.locator(".field-error[role=alert]")).toHaveText("That key is not valid.");
+  const newKeyPage = await other.newPage();
+  await uiSignIn(newKeyPage, "project", newKey);
+  await expect(newKeyPage).toHaveURL(/\/project$/);
   await other.close();
 });
 
@@ -82,15 +86,20 @@ test.describe("addresses of alpha", () => {
     await drawer.getByLabel("Addresses").fill(`0:${"1".repeat(64)}\n\n0:${"2".repeat(64)}`);
     await drawer.getByRole("button", { name: "Register addresses" }).click();
     await expect(drawer.getByText("Line 3 is not a valid TON address.")).toBeVisible();
+    const gutter = drawer.locator("[aria-hidden=true].mono > div");
+    await expect(gutter.nth(2)).toHaveClass(/text-err/);
+    await expect(gutter.nth(0)).not.toHaveClass(/text-err/);
   });
 
-  test("EQ… and raw forms of one address are flagged before sending", async ({ page }) => {
+  test("EQ… and raw forms of one address are flagged before sending", async ({ page, request }) => {
     await page.goto(`/admin/projects/${ALPHA_ID}`);
     await page.getByRole("button", { name: "Register addresses" }).first().click();
     const drawer = page.getByRole("dialog", { name: "Register addresses" });
     await drawer.getByLabel("Addresses").fill(`${USDT_FRIENDLY}\n${USDT_RAW}`);
+    await clearCalls(request);
     await drawer.getByRole("button", { name: "Register addresses" }).click();
     await expect(drawer.getByText("Line 2 is a duplicate of line 1.")).toBeVisible();
+    expect((await fakeCalls(request)).filter((call) => call.method === "POST")).toEqual([]);
   });
 
   test("a successful batch lists the result and the table shows Pending start", async ({ page }) => {
@@ -101,6 +110,7 @@ test.describe("addresses of alpha", () => {
     await drawer.getByRole("button", { name: "Register addresses" }).click();
     await expect(drawer.getByText("1 address registered.")).toBeVisible();
     await expect(drawer.getByText("New source")).toBeVisible();
+    await expect(drawer.getByText("Linked", { exact: true })).toBeVisible();
     await expect(drawer.getByText("History syncing")).toBeVisible();
     await drawer.getByRole("button", { name: "Done" }).click();
     await expect(page.getByText("Pending start")).toHaveCount(2);

@@ -1,4 +1,4 @@
-import { expect, type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
+import { test as base, expect, type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
 import { sealData } from "iron-session";
 import { E2E_SECRET, FAKE_URL } from "../../playwright.config";
 
@@ -53,3 +53,57 @@ export async function addSealedSession(context: BrowserContext, baseURL: string,
   const value = await sealData(data, { password: E2E_SECRET, ttl: 12 * 3600 });
   await context.addCookies([{ name: "tonobs_session", value, url: baseURL, httpOnly: true, sameSite: "Strict" }]);
 }
+
+// Upstream paths the proxy may call (PLAN.md Decisions › Proxy allowlist).
+const ALLOWED_UPSTREAM = [
+  /^GET \/health\/ready$/,
+  /^(GET|POST) \/projects$/,
+  /^POST \/projects\/[0-9a-f-]{36}\/api-key$/,
+  /^(GET|POST) \/projects\/[0-9a-f-]{36}\/addresses$/,
+  /^DELETE \/projects\/[0-9a-f-]{36}\/addresses\/[^/]+$/,
+  /^POST \/graphql$/,
+];
+const SECRET_KEYS = [ADMIN_KEY, ALPHA_KEY, EMPTY_KEY];
+const ISSUED_KEY = /issued\d{2}_x+/;
+
+/**
+ * Every test gets these checks for free:
+ * no /api reply body carries a key (except create/rotate), every /api reply is no-store,
+ * and ton-observer was only called on allowlisted paths.
+ */
+export const test = base.extend<{ apiGuard: void }>({
+  apiGuard: [
+    async ({ page, request }, use) => {
+      const problems: string[] = [];
+      const pending: Promise<void>[] = [];
+      page.on("response", (response) => {
+        const url = new URL(response.url());
+        if (!url.pathname.startsWith("/api/")) return;
+        const method = response.request().method();
+        if (response.headers()["cache-control"] !== "no-store") problems.push(`no-store missing: ${method} ${url.pathname}`);
+        const issuesKey = method === "POST" && (url.pathname === "/api/admin/projects" || url.pathname.endsWith("/api-key"));
+        if (!(response.headers()["content-type"] ?? "").includes("application/json")) return;
+        // A body Playwright can no longer read (page navigated) resolves to "" after 2 s instead of hanging.
+        const body = Promise.race([response.text(), new Promise<string>((resolve) => setTimeout(() => resolve(""), 2000))]);
+        pending.push(
+          body
+            .then((body) => {
+              const leaked = SECRET_KEYS.some((key) => body.includes(key)) || (!issuesKey && ISSUED_KEY.test(body));
+              if (leaked) problems.push(`key in body: ${method} ${url.pathname}`);
+            })
+            .catch(() => {}),
+        );
+      });
+      await use();
+      await Promise.all(pending);
+      for (const call of await fakeCalls(request)) {
+        const line = `${call.method} ${call.path}`;
+        if (!ALLOWED_UPSTREAM.some((pattern) => pattern.test(line))) problems.push(`upstream call outside allowlist: ${line}`);
+      }
+      expect(problems).toEqual([]);
+    },
+    { auto: true },
+  ],
+});
+
+export { expect };

@@ -20,7 +20,7 @@ cp .env.example .env.local
 # set SESSION_SECRET to 32+ random characters, e.g.
 node -e "console.log(require('crypto').randomBytes(33).toString('base64'))"
 pnpm install
-pnpm dev          # http://127.0.0.1:3100
+pnpm dev          # http://127.0.0.1:$PORT (3100 by default)
 ```
 
 Sign in with:
@@ -28,10 +28,16 @@ Sign in with:
 - **Admin key**: the `ADMIN_API_KEY` set on ton-observer.
 - **Project key**: the key shown once when a project is created (or rotated).
 
-Production build: `pnpm build && pnpm start` (also port 3100).
+Production build: `pnpm build && pnpm start` (same port).
+
+`pnpm dev` and `pnpm start` go through `scripts/next.mjs`: Next itself never reads `PORT` from
+`.env` files (the server binds before they load), so the script loads `.env` and `.env.local` first
+and passes `-H 127.0.0.1 -p $PORT`. The host stays `127.0.0.1` on purpose: the app is local-only
+and its session cookie is not `Secure` over plain http.
 
 | Variable | Required | Default | Notes |
 |---|---|---|---|
+| `PORT` | no | `3100` | port for `pnpm dev` / `pnpm start` (ton-observer uses 3000). A shell value wins over `.env.local`, which wins over `.env`. |
 | `OBSERVER_API_URL` | no | `http://localhost:3000` | ton-observer base URL, used server-side only |
 | `SESSION_SECRET` | yes | — | ≥ 32 chars; `dev` and `start` exit if it is missing. `build` does not need it. |
 
@@ -53,7 +59,7 @@ Production build: `pnpm build && pnpm start` (also port 3100).
    The worker is not needed; the registered address stays "Pending start".
 2. Here: `pnpm dev` (or `pnpm build && pnpm start`).
 3. `REAL_ADMIN_KEY=<ADMIN_API_KEY> pnpm e2e:real`
-   (`REAL_DASHBOARD_URL` defaults to `http://127.0.0.1:3100`).
+   (`REAL_DASHBOARD_URL` defaults to `http://127.0.0.1:$PORT`, port 3100 if unset).
 
 It creates a project named `smoke-<timestamp>`, registers the USDT master "from now", signs in with
 the new project key and checks the address is listed.

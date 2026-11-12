@@ -1,5 +1,6 @@
 "use client";
 
+import { useMediaQuery } from "@/components/shell/use-media";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 export interface BarDatum {
@@ -9,6 +10,7 @@ export interface BarDatum {
 
 /** Thin rounded primary bars, horizontal gridlines only (dashboard-plan.md §4.2). */
 export function BarChartView({ data, valueLabel }: { data: BarDatum[]; valueLabel: string }) {
+  const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", true);
   return (
     <div className="h-72 w-full" role="img" aria-label={`${valueLabel}: ${data.map((d) => `${d.label} ${d.value}`).join(", ")}`}>
       <ResponsiveContainer width="100%" height="100%">
@@ -20,15 +22,22 @@ export function BarChartView({ data, valueLabel }: { data: BarDatum[]; valueLabe
             cursor={{ fill: "var(--neutral-soft)" }}
             contentStyle={{
               background: "var(--surface)",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
+              border: "var(--hairline)",
+              borderRadius: "var(--r-sm)",
               color: "var(--ink)",
-              fontSize: 13,
+              fontSize: "var(--fs-small)",
             }}
             labelStyle={{ color: "var(--ink-2)" }}
             formatter={(value) => [value, valueLabel]}
           />
-          <Bar dataKey="value" fill="var(--primary)" radius={[6, 6, 0, 0]} maxBarSize={28} />
+          <Bar
+            dataKey="value"
+            fill="var(--primary)"
+            radius={[6, 6, 0, 0]}
+            maxBarSize={28}
+            isAnimationActive={!reducedMotion}
+            animationDuration={400}
+          />
         </BarChart>
       </ResponsiveContainer>
     </div>

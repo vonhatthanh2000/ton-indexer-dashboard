@@ -48,7 +48,9 @@ export function AppShell({ session, children }: { session: SessionInfo; children
         Skip to content
       </a>
       <aside className="app-sidebar" aria-label="Sidebar">
-        <SidebarContent session={session} collapsed={collapsed && !isMobile} />
+        <div className="app-sidebar-inner">
+          <SidebarContent session={session} collapsed={collapsed && !isMobile} />
+        </div>
       </aside>
       <DialogPrimitive.Root open={drawerOpen && isMobile} onOpenChange={setDrawerOpen}>
         <DialogPrimitive.Portal>

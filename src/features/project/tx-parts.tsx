@@ -20,7 +20,7 @@ export function txHref(address: string): string {
 export function FlowCell({ tx }: { tx: Transaction }) {
   const destinations = tx.outMsgs.map((message) => message.destination).filter((value): value is string => Boolean(value));
   return (
-    <span className="inline-flex flex-wrap items-center gap-2">
+    <span className="inline-flex items-center gap-2">
       {tx.sender ? <AddressChip address={tx.sender} /> : <Pill tone="neutral">external</Pill>}
       <ArrowRight size={14} strokeWidth={1.5} aria-label="to" className="text-ink-2" />
       {destinations.length > 0 ? (

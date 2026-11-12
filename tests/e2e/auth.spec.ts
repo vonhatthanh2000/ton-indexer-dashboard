@@ -1,4 +1,3 @@
-import { expect, test } from "@playwright/test";
 import {
   ADMIN_KEY,
   ALPHA_ID,
@@ -11,6 +10,8 @@ import {
   resetFake,
   setScenario,
   uiSignIn,
+  expect,
+  test,
 } from "./helpers";
 
 test.beforeEach(async ({ request }) => {
@@ -28,8 +29,13 @@ test("a wrong admin or project key shows the error and sets no cookie", async ({
 test("a malformed key is rejected without calling ton-observer", async ({ page, request }) => {
   await page.goto("/login");
   await clearCalls(request);
-  for (const key of ["too-short", "bad\nkey"]) {
-    const response = await page.request.post("/api/auth/login", { headers: CSRF, data: { role: "project", key } });
+  for (const [role, key] of [
+    ["project", "too-short"],
+    ["project", "bad\nkey"],
+    ["admin", "bad\nkey"],
+    ["admin", "x".repeat(257)],
+  ] as const) {
+    const response = await page.request.post("/api/auth/login", { headers: CSRF, data: { role, key } });
     expect(response.status()).toBe(401);
     expect(await response.json()).toEqual({ error: "invalid_key" });
   }
@@ -66,15 +72,36 @@ test("signing in as a project after an admin session leaves no project-key cooki
   expect((await context.cookies()).some((cookie) => cookie.name === "tonobs_pkeys")).toBe(false);
 });
 
-test("a 13 h old session is expired everywhere except health and auth", async ({ page, context, baseURL }) => {
-  await addSealedSession(context, baseURL!, { role: "admin", key: ADMIN_KEY, issuedAt: Date.now() - 13 * 3600_000 });
-  for (const path of ["/api/admin/projects", `/api/admin/projects/${ALPHA_ID}/addresses`]) {
-    const response = await page.request.get(path);
-    expect(response.status()).toBe(401);
+test("a 13 h old session is expired everywhere except health and auth", async ({ page, context, baseURL, request }) => {
+  const old = { key: ADMIN_KEY, issuedAt: Date.now() - 13 * 3600_000 };
+  const routes: { role: "admin" | "project"; method: "get" | "post" | "put" | "delete"; path: string; data?: unknown }[] = [
+    { role: "admin", method: "get", path: "/api/admin/projects" },
+    { role: "admin", method: "post", path: "/api/admin/projects", data: { name: "x" } },
+    { role: "admin", method: "post", path: `/api/admin/projects/${ALPHA_ID}/api-key` },
+    { role: "admin", method: "put", path: `/api/admin/projects/${ALPHA_ID}/project-key`, data: { key: ALPHA_KEY } },
+    { role: "admin", method: "get", path: `/api/admin/projects/${ALPHA_ID}/addresses` },
+    { role: "admin", method: "post", path: `/api/admin/projects/${ALPHA_ID}/addresses`, data: { addresses: [], startLt: "now" } },
+    { role: "admin", method: "delete", path: `/api/admin/projects/${ALPHA_ID}/addresses/${encodeURIComponent("0:" + "1".repeat(64))}` },
+    { role: "project", method: "post", path: "/api/graphql", data: { query: "{ project { id } }" } },
+  ];
+  await clearCalls(request);
+  for (const route of routes) {
+    await addSealedSession(context, baseURL!, { role: route.role, ...old, key: route.role === "admin" ? ADMIN_KEY : ALPHA_KEY });
+    const response = await page.request[route.method](route.path, { headers: CSRF, data: route.data });
+    expect(response.status(), `${route.method} ${route.path}`).toBe(401);
     expect(await response.json()).toEqual({ error: "session_expired" });
-    await addSealedSession(context, baseURL!, { role: "admin", key: ADMIN_KEY, issuedAt: Date.now() - 13 * 3600_000 });
+    expect(response.headers()["set-cookie"] ?? "", "session cookie cleared").toMatch(/tonobs_session=;.*Max-Age=0/i);
   }
+  expect(await fakeCalls(request)).toEqual([]);
   expect((await page.request.get("/api/health")).status()).toBe(200);
+
+  await addSealedSession(context, baseURL!, { role: "admin", ...old });
+  const redirect = await page.request.get("/admin", { maxRedirects: 0 });
+  expect(redirect.status()).toBe(307);
+  expect(redirect.headers()["location"]).toBe("/login?reason=expired&next=%2Fadmin");
+  expect(redirect.headers()["set-cookie"] ?? "").toMatch(/tonobs_session=;.*Max-Age=0/i);
+
+  await addSealedSession(context, baseURL!, { role: "admin", ...old });
   await page.goto("/admin");
   await expect(page).toHaveURL(/\/login\?reason=expired&next=%2Fadmin$/);
   await expect(page.getByRole("status").filter({ hasText: "Your session ended" })).toBeVisible();
@@ -104,6 +131,7 @@ test("proxy rules: CSRF, body cap, JSON 404, bad ids", async ({ page, request })
   expect(noCsrf.status()).toBe(403);
   expect(await noCsrf.json()).toEqual({ error: "csrf" });
   const loginNoCsrf = await page.request.post("/api/auth/login", { data: { role: "admin", key: ADMIN_KEY } });
+  expect(loginNoCsrf.status()).toBe(403);
   expect(await loginNoCsrf.json()).toEqual({ error: "csrf" });
 
   const big = await page.request.post(`/api/admin/projects/${ALPHA_ID}/addresses`, {
@@ -111,6 +139,7 @@ test("proxy rules: CSRF, body cap, JSON 404, bad ids", async ({ page, request })
     data: { addresses: ["a".repeat(65 * 1024)], startLt: "now" },
   });
   expect(big.status()).toBe(413);
+  expect(await big.json()).toEqual({ error: "payload_too_large" });
 
   const unknown = await page.request.get("/api/anything-else");
   expect(unknown.status()).toBe(404);
@@ -126,7 +155,9 @@ test("the top bar shows the API state", async ({ page, request }) => {
   await page.goto("/admin");
   await expect(page.getByRole("status").filter({ hasText: "API online" })).toBeVisible();
   await setScenario(request, { health: "down" });
-  expect((await page.request.get("/api/health")).status()).toBe(502);
+  const down = await page.request.get("/api/health");
+  expect(down.status()).toBe(502);
+  expect(await down.json()).toEqual({ error: "api_unreachable" });
   await page.reload();
   await expect(page.getByRole("status").filter({ hasText: "API unreachable" })).toBeVisible();
   await setScenario(request, { health: "db_down" });

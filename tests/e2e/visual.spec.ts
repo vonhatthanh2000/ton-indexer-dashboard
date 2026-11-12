@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { ADMIN_KEY, ALPHA_ID, ALPHA_KEY, CSRF, apiSignIn, resetFake } from "./helpers";
+import { ADMIN_KEY, ALPHA_ID, ALPHA_KEY, CSRF, apiSignIn, resetFake, expect, test } from "./helpers";
 
 const WIDTHS = [
   { width: 1440, height: 900 },
@@ -24,9 +24,12 @@ const ROUTES: { role: "none" | "admin" | "project"; path: string; name: string }
 
 mkdirSync("shots/html", { recursive: true });
 
+// Not "networkidle": Next keeps a connection open on app pages, so it never settles.
 async function settle(page: Page) {
-  await page.waitForLoadState("networkidle");
+  await page.waitForLoadState("load");
+  await expect(page.locator("main#main")).toBeVisible();
   await expect(page.locator(".skeleton")).toHaveCount(0, { timeout: 10_000 });
+  await page.evaluate(() => document.fonts.ready);
 }
 
 for (const route of ROUTES) {
@@ -39,6 +42,7 @@ for (const route of ROUTES) {
     }
     if (route.role === "project") await apiSignIn(page, "project", ALPHA_KEY);
 
+    await page.emulateMedia({ reducedMotion: "reduce" });
     for (const theme of THEMES) {
       await page.addInitScript((value) => {
         try {

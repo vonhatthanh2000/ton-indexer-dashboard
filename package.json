@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -H 127.0.0.1 -p 3100",
+    "dev": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/next.mjs dev",
     "build": "next build",
-    "start": "next start -H 127.0.0.1 -p 3100",
+    "start": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/next.mjs start",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
