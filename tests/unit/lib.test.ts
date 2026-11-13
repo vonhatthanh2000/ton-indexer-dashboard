@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildFeedQuery, mergeFeed } from "@/lib/feed";
+import { LIVE_POLL_MS, PROJECT_TRANSACTIONS_QUERY, livePollInterval, nextCursor } from "@/lib/feed";
 import { compactNumber, formatTon, groupDigits, relativeTime, shorten } from "@/lib/format";
 import { filterBy, hasNextPage, paginate } from "@/lib/paging";
 import type { Transaction } from "@/lib/types";
@@ -45,31 +45,29 @@ describe("paging", () => {
   });
 });
 
-function tx(hash: string, utime: string, lt: string): Transaction {
-  return { hash, utime, lt, time: "", traceId: null, inMsgOpcode: null, sender: null, value: null, aborted: false, fee: null, outMsgs: [] };
+function tx(hash: string, utime: string, lt: string, account = "0:AA"): Transaction {
+  return { account, hash, utime, lt, time: "", traceId: null, inMsgOpcode: null, sender: null, value: null, aborted: false, fee: null, outMsgs: [] };
 }
 
 describe("feed", () => {
-  it("builds variables, never inlines addresses", () => {
-    const built = buildFeedQuery(["0:AA", "0:BB"])!;
-    expect(built.variables).toEqual({ a0: "0:AA", a1: "0:BB" });
-    expect(built.query).not.toContain("0:AA");
-    expect(built.query).toContain("$a1: String!");
+  it("projectTransactions takes the id and cursor as variables", () => {
+    expect(PROJECT_TRANSACTIONS_QUERY).toContain("$id: String!");
+    expect(PROJECT_TRANSACTIONS_QUERY).toContain("$before: TransactionCursor");
+    expect(PROJECT_TRANSACTIONS_QUERY).toMatch(/projectTransactions\([^)]*before: \$before/);
+    expect(PROJECT_TRANSACTIONS_QUERY).toContain("account");
   });
-  it("returns null for no addresses and caps at 20", () => {
-    expect(buildFeedQuery([])).toBeNull();
-    const many = Array.from({ length: 25 }, (_, index) => `0:${index}`);
-    expect(Object.keys(buildFeedQuery(many)!.variables)).toHaveLength(20);
+  it("next cursor is the last row's utime, lt and account, as strings", () => {
+    const page = [tx("a", "200", "9007199254740995", "0:BB"), tx("b", "100", "9007199254740993", "0:CC")];
+    expect(nextCursor(page, 2)).toEqual({ utime: "100", lt: "9007199254740993", account: "0:CC" });
   });
-  it("merges newest first by utime then lt (BigInt)", () => {
-    const merged = mergeFeed(
-      {
-        a0: [tx("a", "100", "9007199254740993"), tx("b", "90", "5")],
-        a1: [tx("c", "100", "9007199254740995"), tx("d", "120", "1")],
-      },
-      ["0:A", "0:B"],
-    );
-    expect(merged.map((row) => row.hash)).toEqual(["d", "c", "a", "b"]);
-    expect(merged[0].account).toBe("0:B");
+  it("a short page means nothing older", () => {
+    expect(nextCursor([tx("a", "1", "1")], 20)).toBeUndefined();
+    expect(nextCursor([], 20)).toBeUndefined();
+  });
+  it("polls every 5 s only while just the first page is loaded", () => {
+    expect(livePollInterval(1)).toBe(LIVE_POLL_MS);
+    expect(LIVE_POLL_MS).toBe(5000);
+    expect(livePollInterval(2)).toBe(false);
+    expect(livePollInterval(undefined)).toBe(false);
   });
 });

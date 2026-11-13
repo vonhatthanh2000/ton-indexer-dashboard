@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseAddressLines, validateStartLt } from "@/lib/register";
+import { addressesFromCsv, addressesFromFile, addressesFromJson, parseAddressLines, validateStartLt } from "@/lib/register";
 
 const RAW = "0:B113A994B5024A16719F69139328EB759596C38A25F59028B146FECDC3621DFE";
 const FRIENDLY = "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs";
@@ -33,5 +33,45 @@ describe("validateStartLt", () => {
     expect(validateStartLt("01")).not.toBeNull();
     expect(validateStartLt("-1")).not.toBeNull();
     expect(validateStartLt("9223372036854775808")).not.toBeNull();
+  });
+});
+
+describe("addressesFromCsv", () => {
+  it("uses the address column when the header names one", () => {
+    expect(addressesFromCsv(`label,Address\nmain,${FRIENDLY}\nzero,"${RAW}"\n`)).toEqual([FRIENDLY, RAW]);
+  });
+  it("takes the first column without a header, any delimiter, skipping blank rows", () => {
+    expect(addressesFromCsv(`${FRIENDLY};x\n\n${RAW};y`)).toEqual([FRIENDLY, RAW]);
+    expect(addressesFromCsv(`${FRIENDLY}\t1\r\n${RAW}\t2`)).toEqual([FRIENDLY, RAW]);
+    expect(addressesFromCsv(`${FRIENDLY}\n${RAW}`)).toEqual([FRIENDLY, RAW]);
+  });
+  it("handles quoted cells with commas and escaped quotes", () => {
+    expect(addressesFromCsv(`address,note\n"${RAW}","a, ""b"""`)).toEqual([RAW]);
+  });
+});
+
+describe("addressesFromJson", () => {
+  it("accepts a list, a list of objects, or { addresses }", () => {
+    expect(addressesFromJson(JSON.stringify([FRIENDLY, RAW]))).toEqual({ addresses: [FRIENDLY, RAW] });
+    expect(addressesFromJson(JSON.stringify([{ address: FRIENDLY }]))).toEqual({ addresses: [FRIENDLY] });
+    expect(addressesFromJson(JSON.stringify({ addresses: [RAW] }))).toEqual({ addresses: [RAW] });
+  });
+  it("explains what is wrong", () => {
+    expect(addressesFromJson("{")).toEqual({ error: "That file is not valid JSON." });
+    expect(addressesFromJson('{"a":1}')).toHaveProperty("error");
+    expect(addressesFromJson("[1]")).toHaveProperty("error");
+  });
+});
+
+describe("addressesFromFile", () => {
+  it("picks the parser by extension and strips a BOM", () => {
+    expect(addressesFromFile("x.CSV", 10, `\uFEFFaddress\n${RAW}`)).toEqual({ addresses: [RAW] });
+    expect(addressesFromFile("x.txt", 10, `${RAW}\n`)).toEqual({ addresses: [RAW] });
+    expect(addressesFromFile("x.json", 10, JSON.stringify([RAW]))).toEqual({ addresses: [RAW] });
+  });
+  it("rejects other types, empty files and files over 1 MB", () => {
+    expect(addressesFromFile("x.xlsx", 10, "")).toEqual({ error: "Use a .csv, .json or .txt file." });
+    expect(addressesFromFile("x.csv", 10, "address\n")).toEqual({ error: "No addresses found in that file." });
+    expect(addressesFromFile("x.csv", 2 * 1024 * 1024, RAW)).toEqual({ error: "That file is larger than 1 MB." });
   });
 });

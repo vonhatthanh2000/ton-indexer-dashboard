@@ -2,7 +2,6 @@
 
 import { Activity, Inbox, Loader, Wallet } from "lucide-react";
 import Link from "next/link";
-import { useMemo } from "react";
 import { AddressChip } from "@/components/chain/address-chip";
 import { HashChip } from "@/components/chain/hash-chip";
 import { TxStatusPill, addressStatus } from "@/components/chain/status-pills";
@@ -13,7 +12,7 @@ import { errorCode } from "@/lib/client";
 import { errorText } from "@/lib/errors";
 import { exactNumber } from "@/lib/format";
 import { can } from "@/lib/roles";
-import type { FeedTransaction } from "@/lib/types";
+import type { Transaction } from "@/lib/types";
 import { useLatestFeed, useProject } from "./hooks";
 import { useProjectScope } from "./scope";
 import { FlowCell, projectBase, txHref } from "./tx-parts";
@@ -39,9 +38,8 @@ export function NoAddressesYet({ projectId, canWrite }: { projectId: string; can
 export function ProjectDashboard() {
   const { projectId, projectName, role } = useProjectScope();
   const project = useProject(projectId, { refetchOnWindowFocus: true });
-  const addresses = useMemo(() => project.data?.addresses.map((row) => row.address), [project.data]);
-  const feed = useLatestFeed(projectId, addresses);
   const rows = project.data?.addresses ?? [];
+  const feed = useLatestFeed(projectId, rows.length > 0);
   const statuses = rows.map(addressStatus);
   const live = statuses.filter((status) => status === "live").length;
   const syncing = statuses.length - live;
@@ -60,7 +58,7 @@ export function ProjectDashboard() {
         <CardHeader
           title="Latest transactions"
           titleId="feed-title"
-          subtitle={rows.length > 20 ? "Newest across the first 20 addresses" : "Newest across the project's addresses"}
+          subtitle="Newest across every address. Updates every 5 seconds."
           actions={
             rows.length > 0 ? (
               <Link href={`${projectBase(projectId)}/transactions`} className="link font-medium">
@@ -75,12 +73,12 @@ export function ProjectDashboard() {
           <ErrorState message={projectError} onRetry={() => void project.refetch()} />
         ) : rows.length === 0 ? (
           <NoAddressesYet projectId={projectId} canWrite={can(role, "writeAddresses")} />
-        ) : feed.error ? (
+        ) : feed.error && !feed.data ? (
           <ErrorState message={errorText({ code: errorCode(feed.error) })} onRetry={() => void feed.refetch()} />
         ) : (feed.data ?? []).length === 0 ? (
           <EmptyState icon={Inbox} title="No transactions stored yet" body="History may still be syncing." />
         ) : (
-          <DataTable<FeedTransaction>
+          <DataTable<Transaction>
             caption="Latest transactions"
             rows={feed.data ?? []}
             rowKey={(row) => `${row.account}-${row.hash}`}

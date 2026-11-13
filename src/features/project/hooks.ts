@@ -5,11 +5,17 @@ import { useRouter } from "next/navigation";
 import { useCallback } from "react";
 import { ME_KEY } from "@/features/auth/use-me";
 import { GqlError, apiFetch, errorCode, gql } from "@/lib/client";
-import { TRANSACTION_FIELDS, buildFeedQuery, mergeFeed } from "@/lib/feed";
+import {
+  ADDRESS_TRANSACTIONS_QUERY,
+  FEED_ROWS,
+  LIVE_POLL_MS,
+  PROJECT_TRANSACTIONS_QUERY,
+  livePollInterval,
+  nextCursor,
+} from "@/lib/feed";
 import type {
   AddressPage,
   ApiKeyReply,
-  FeedTransaction,
   Me,
   MemberChangeReply,
   MemberRole,
@@ -18,6 +24,7 @@ import type {
   RegisteredAddress,
   ResendInviteReply,
   Transaction,
+  TransactionCursor,
 } from "@/lib/types";
 
 export const TX_PAGE_SIZE = 20;
@@ -27,7 +34,8 @@ export const ADDRESS_PAGE_SIZE = 100;
 export const projectKeys = {
   all: (projectId: string) => ["project", projectId] as const,
   info: (projectId: string) => ["project", projectId, "info"] as const,
-  feed: (projectId: string, addresses: string[]) => ["project", projectId, "feed", addresses] as const,
+  feed: (projectId: string) => ["project", projectId, "feed"] as const,
+  allTransactions: (projectId: string) => ["project", projectId, "tx", "all"] as const,
   transactions: (projectId: string, address: string) => ["project", projectId, "tx", address] as const,
   addresses: (projectId: string) => ["project", projectId, "addresses"] as const,
   addressPage: (projectId: string, offset: number) => ["project", projectId, "addresses", offset] as const,
@@ -40,10 +48,6 @@ export function projectPath(projectId: string, rest = ""): string {
 }
 
 const PROJECT_QUERY = `query DashboardProject($id: String!) { project(id: $id) { id name addresses { address state startLt lastLt stillSyncing } } }`;
-
-const TRANSACTIONS_QUERY = `query DashboardTransactions($address: String!, $limit: Int!, $beforeLt: String) {
-  transactions(address: $address, limit: $limit, beforeLt: $beforeLt) { ${TRANSACTION_FIELDS} }
-}`;
 
 function fetchProject(projectId: string): Promise<MyProject> {
   return gql<{ project: MyProject }>(PROJECT_QUERY, { id: projectId }).then((data) => data.project);
@@ -86,36 +90,41 @@ export function useProject(projectId: string, options: { refetchOnWindowFocus?: 
   });
 }
 
-/** One aliased query; on FORBIDDEN refetch the project and retry once (as v1). */
-export function useLatestFeed(projectId: string, addresses: string[] | undefined) {
-  const client = useQueryClient();
+function fetchProjectTransactions(projectId: string, limit: number, before: TransactionCursor | null): Promise<Transaction[]> {
+  return gql<{ projectTransactions: Transaction[] }>(PROJECT_TRANSACTIONS_QUERY, { id: projectId, limit, before }).then(
+    (data) => data.projectTransactions,
+  );
+}
+
+/**
+ * The dashboard card: the newest rows across every address, refreshed every 5 s while the tab
+ * is visible. A FORBIDDEN "id: …" is handled by `gql` like project_not_found.
+ */
+export function useLatestFeed(projectId: string, enabled: boolean) {
   return useQuery({
-    queryKey: projectKeys.feed(projectId, addresses ?? []),
-    enabled: addresses !== undefined && addresses.length > 0,
+    queryKey: projectKeys.feed(projectId),
+    enabled,
+    queryFn: () => fetchProjectTransactions(projectId, FEED_ROWS, null),
+    refetchInterval: LIVE_POLL_MS,
     refetchOnWindowFocus: true,
     retry: false,
-    queryFn: async (): Promise<FeedTransaction[]> => {
-      const run = async (list: string[]) => {
-        const built = buildFeedQuery(list);
-        if (!built) return [];
-        const data = await gql<Record<string, Transaction[]>>(built.query, built.variables);
-        return mergeFeed(data, list);
-      };
-      try {
-        return await run(addresses ?? []);
-      } catch (error) {
-        if (!(error instanceof GqlError) || error.code !== "FORBIDDEN") throw error;
-        const project = await client.fetchQuery({
-          queryKey: projectKeys.info(projectId),
-          queryFn: () => fetchProject(projectId),
-          staleTime: 0,
-        });
-        return run(project.addresses.map((row) => row.address));
-      }
-    },
   });
 }
 
+/** Every address, newest first, paged by `(utime, lt, account)`; live while only page 1 is loaded. */
+export function useProjectTransactions(projectId: string, enabled: boolean) {
+  return useInfiniteQuery({
+    queryKey: projectKeys.allTransactions(projectId),
+    enabled,
+    initialPageParam: null as TransactionCursor | null,
+    queryFn: ({ pageParam }) => fetchProjectTransactions(projectId, TX_PAGE_SIZE, pageParam),
+    getNextPageParam: (lastPage) => nextCursor(lastPage, TX_PAGE_SIZE),
+    refetchInterval: (query) => livePollInterval(query.state.data?.pages.length),
+    retry: false,
+  });
+}
+
+/** One address, newest first, paged by lt; live while only page 1 is loaded. */
 export function useTransactions(projectId: string, address: string | undefined) {
   const client = useQueryClient();
   return useInfiniteQuery({
@@ -123,17 +132,16 @@ export function useTransactions(projectId: string, address: string | undefined) 
     enabled: Boolean(address),
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }) => {
-      const run = () =>
-        gql<{ transactions: Transaction[] }>(TRANSACTIONS_QUERY, {
+      try {
+        const data = await gql<{ transactions: Transaction[] }>(ADDRESS_TRANSACTIONS_QUERY, {
           address,
           limit: TX_PAGE_SIZE,
           beforeLt: pageParam,
-        }).then((data) => data.transactions);
-      try {
-        return await run();
+        });
+        return data.transactions;
       } catch (error) {
         // FORBIDDEN "address: …": the address was unlinked meanwhile; refresh the picker, whose
-        // new list moves the page to a linked address.
+        // new list moves the page back to all addresses.
         if (error instanceof GqlError && error.code === "FORBIDDEN") {
           void client.invalidateQueries({ queryKey: projectKeys.info(projectId) });
         }
@@ -141,6 +149,8 @@ export function useTransactions(projectId: string, address: string | undefined) 
       }
     },
     getNextPageParam: (lastPage) => (lastPage.length < TX_PAGE_SIZE ? undefined : lastPage[lastPage.length - 1].lt),
+    refetchInterval: (query) => livePollInterval(query.state.data?.pages.length),
+    retry: false,
   });
 }
 

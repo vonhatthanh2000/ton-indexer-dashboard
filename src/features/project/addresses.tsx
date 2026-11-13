@@ -16,7 +16,7 @@ import { can } from "@/lib/roles";
 import type { AdminAddress } from "@/lib/types";
 import { NoAddressesYet } from "./dashboard";
 import { ADDRESS_PAGE_SIZE, useAddressPage, useOnRoleDenied, useUnlinkAddress } from "./hooks";
-import { RegisterAddressesDrawer } from "./register-drawer";
+import { RegisterAddressesDialog } from "./register-dialog";
 import { useProjectScope } from "./scope";
 import { friendly, projectBase, txHref } from "./tx-parts";
 
@@ -25,7 +25,7 @@ export function AddressesPage() {
   const { projectId, projectName, role } = useProjectScope();
   const canWrite = can(role, "writeAddresses");
   const [offset, setOffset] = useState(0);
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [registerOpen, setRegisterOpen] = useState(false);
   const [unlinking, setUnlinking] = useState<AdminAddress | null>(null);
   const query = useAddressPage(projectId, offset);
   const unlink = useUnlinkAddress(projectId, offset);
@@ -47,7 +47,7 @@ export function AddressesPage() {
   }
 
   const registerButton = canWrite ? (
-    <Button variant="primary" onClick={() => setDrawerOpen(true)}>
+    <Button variant="primary" onClick={() => setRegisterOpen(true)}>
       <Plus size={18} strokeWidth={1.75} aria-hidden="true" />
       Register addresses
     </Button>
@@ -78,7 +78,7 @@ export function AddressesPage() {
               title="No addresses yet"
               body="Register the addresses this project should index."
               action={
-                <Button variant="primary" onClick={() => setDrawerOpen(true)}>
+                <Button variant="primary" onClick={() => setRegisterOpen(true)}>
                   Register addresses
                 </Button>
               }
@@ -158,7 +158,7 @@ export function AddressesPage() {
 
       {canWrite ? (
         <>
-          <RegisterAddressesDrawer projectId={projectId} open={drawerOpen} onOpenChange={setDrawerOpen} />
+          <RegisterAddressesDialog projectId={projectId} open={registerOpen} onOpenChange={setRegisterOpen} />
           <Dialog
             open={unlinking !== null}
             onOpenChange={(open) => (open ? undefined : setUnlinking(null))}

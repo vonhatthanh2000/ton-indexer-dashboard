@@ -116,18 +116,29 @@ function handleGraphql(res, user, body) {
     return send(res, 200, { data: { project: { id: project.id, name: project.name, addresses } } });
   }
   const linked = new Set(readable.flatMap((project) => project.addresses.map((row) => row.address)));
+  const withAccount = (account) => (TRANSACTIONS[account] ?? []).map((row) => ({ ...row, account }));
+  if (/projectTransactions\s*\(/.test(query)) {
+    // Every address of the project, newest first by (utime, lt, account); `before` is the last row.
+    const project = readable.find((row) => row.id === variables.id);
+    if (!project) return gqlError(res, "FORBIDDEN", "id: is not a project you can read");
+    const limit = Number(variables.limit ?? 20);
+    const key = (row) => [BigInt(row.utime), BigInt(row.lt), row.account];
+    const older = (a, b) => (a[0] !== b[0] ? a[0] < b[0] : a[1] !== b[1] ? a[1] < b[1] : a[2] < b[2]);
+    const before = variables.before ? key(variables.before) : null;
+    const rows = project.addresses
+      .flatMap((row) => withAccount(row.address))
+      .filter((row) => before === null || older(key(row), before))
+      .sort((a, b) => (older(key(a), key(b)) ? 1 : -1))
+      .slice(0, limit);
+    return send(res, 200, { data: { projectTransactions: rows } });
+  }
   if (/transactions\s*\(/.test(query)) {
-    // One `transactions(address:)` field, or the dashboard feed's aliased fields (one variable each).
-    const data = {};
-    const aliased = /DashboardFeed/.test(query);
-    const entries = aliased ? Object.entries(variables) : [["transactions", variables.address]];
-    for (const [alias, value] of entries) {
-      if (!linked.has(value)) return gqlError(res, "FORBIDDEN", "address: is not linked to your projects");
-      const limit = aliased ? 10 : Number(variables.limit ?? 20);
-      const before = !aliased && variables.beforeLt ? BigInt(variables.beforeLt) : null;
-      data[alias] = (TRANSACTIONS[value] ?? []).filter((row) => before === null || BigInt(row.lt) < before).slice(0, limit);
-    }
-    return send(res, 200, { data });
+    const address = variables.address;
+    if (!linked.has(address)) return gqlError(res, "FORBIDDEN", "address: is not linked to your projects");
+    const limit = Number(variables.limit ?? 20);
+    const before = variables.beforeLt ? BigInt(variables.beforeLt) : null;
+    const rows = withAccount(address).filter((row) => before === null || BigInt(row.lt) < before).slice(0, limit);
+    return send(res, 200, { data: { transactions: rows } });
   }
   return send(res, 400, { errors: [{ message: "Unknown query", extensions: { code: "GRAPHQL_VALIDATION_FAILED" } }] });
 }

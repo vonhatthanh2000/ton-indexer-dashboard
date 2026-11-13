@@ -10,6 +10,7 @@ import { ProjectDashboard } from "@/features/project/dashboard";
 import { SYNC_POLL_MS, projectKeys, syncPollInterval } from "@/features/project/hooks";
 import { ProjectScope } from "@/features/project/scope";
 import { ProjectSettings } from "@/features/project/settings";
+import { TransactionsPage } from "@/features/project/transactions";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { resetClient } from "@/lib/client";
 import type { AddressPage, AdminAddress, Me, Member, ProjectRole } from "@/lib/types";
@@ -23,6 +24,13 @@ vi.mock("next/navigation", () => ({
 
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn() }));
 vi.mock("sonner", () => ({ toast }));
+
+// jsdom has no ResizeObserver; Radix RadioGroup (register dialog) needs one.
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+} as unknown as typeof ResizeObserver;
 
 const PID = "p1";
 const ADDRESS = "0:" + "A".repeat(64);
@@ -66,6 +74,27 @@ function setup(seed: Me, children: ReactNode, data: (client: QueryClient) => voi
   return client;
 }
 
+function projectAddress(value: string) {
+  return { address: value, state: "live", startLt: "1", lastLt: "2", stillSyncing: false };
+}
+
+function txRow(hash: string, account: string, utime: string, lt: string) {
+  return {
+    account,
+    hash,
+    lt,
+    utime,
+    time: new Date(Number(utime) * 1000).toISOString(),
+    traceId: null,
+    inMsgOpcode: null,
+    sender: null,
+    value: null,
+    aborted: false,
+    fee: "1000",
+    outMsgs: [],
+  };
+}
+
 function withAddresses(rows: AdminAddress[]) {
   return (client: QueryClient) =>
     client.setQueryData<AddressPage>(projectKeys.addressPage(PID, 0), { addresses: rows, limit: 100, offset: 0 });
@@ -107,6 +136,53 @@ describe("<ProjectDashboard>", () => {
   });
 });
 
+describe("<ProjectDashboard> latest transactions", () => {
+  it("reads projectTransactions(id, limit 10) across every address", async () => {
+    const OTHER = "0:" + "B".repeat(64);
+    const fetchMock = vi.fn(async (_path: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      if (body.query.includes("projectTransactions")) {
+        return Response.json({ data: { projectTransactions: [txRow("h1", OTHER, "300", "9"), txRow("h2", ADDRESS, "200", "8")] } });
+      }
+      return Response.json({ data: { project: { id: PID, name: "Alpha", addresses: [projectAddress(ADDRESS), projectAddress(OTHER)] } } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setup(me("viewer"), <ProjectDashboard />);
+    await waitFor(() => expect(screen.getAllByRole("row")).toHaveLength(3));
+    const feedCall = fetchMock.mock.calls.map((call) => JSON.parse(String((call as unknown as [string, RequestInit])[1].body))).find((body) => body.query.includes("projectTransactions"));
+    expect(feedCall.variables).toEqual({ id: PID, limit: 10, before: null });
+    expect(screen.getByText("Newest across every address. Updates every 5 seconds.")).toBeTruthy();
+  });
+});
+
+describe("<TransactionsPage>", () => {
+  it("defaults to all addresses with an Address column; Load more sends the last row as the cursor", async () => {
+    const OTHER = "0:" + "B".repeat(64);
+    const page1 = Array.from({ length: 20 }, (_, index) => txRow(`p1-${index}`, index % 2 ? OTHER : ADDRESS, String(1000 - index), String(500 - index)));
+    const bodies: { query: string; variables: Record<string, unknown> }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_path: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        bodies.push(body);
+        if (body.query.includes("projectTransactions")) {
+          return Response.json({ data: { projectTransactions: body.variables.before ? [txRow("old", ADDRESS, "1", "1")] : page1 } });
+        }
+        return Response.json({ data: { project: { id: PID, name: "Alpha", addresses: [projectAddress(ADDRESS), projectAddress(OTHER)] } } });
+      }),
+    );
+    setup(me("viewer"), <TransactionsPage />);
+    await waitFor(() => expect(screen.getByRole("columnheader", { name: "Address" })).toBeTruthy());
+    expect((screen.getByLabelText("Address") as HTMLSelectElement).value).toBe("");
+    expect(screen.getByText(/across every address\. Updates every 5 seconds\./)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Load older transactions" }));
+    await waitFor(() => expect(screen.getByText("No older transactions.")).toBeTruthy());
+    const last = page1[19];
+    expect(bodies.at(-1)!.variables).toEqual({ id: PID, limit: 20, before: { utime: last.utime, lt: last.lt, account: last.account } });
+    expect(screen.getByText(/Live updates pause while older pages are loaded\./)).toBeTruthy();
+  });
+});
+
 describe("<AddressesPage>", () => {
   it("as viewer: no Register or Unlink controls", () => {
     setup(me("viewer"), <AddressesPage />, withAddresses([address()]));
@@ -119,6 +195,36 @@ describe("<AddressesPage>", () => {
     setup(me("editor"), <AddressesPage />, withAddresses([address()]));
     expect(screen.getByRole("button", { name: /Register addresses/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Unlink/ })).toBeTruthy();
+  });
+
+  it("register opens a centered dialog; an imported CSV file fills the list", async () => {
+    setup(me("editor"), <AddressesPage />, withAddresses([address()]));
+    await userEvent.click(screen.getByRole("button", { name: /Register addresses/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Register addresses" });
+    expect(dialog.className).toContain("dialog-panel-wide");
+    const csv = new File([`address,label\n${ADDRESS},main\n`], "list.csv", { type: "text/csv" });
+    await userEvent.upload(within(dialog).getByTestId("register-file"), csv);
+    await waitFor(() => expect((within(dialog).getByLabelText("Addresses") as HTMLTextAreaElement).value).toBe(ADDRESS));
+    expect(within(dialog).getByText(/Added 1 line from list\.csv/)).toBeTruthy();
+  });
+
+  it("dropping a JSON file appends its addresses; a bad file shows why", async () => {
+    setup(me("owner"), <AddressesPage />, withAddresses([address()]));
+    await userEvent.click(screen.getByRole("button", { name: /Register addresses/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Register addresses" });
+    const textarea = within(dialog).getByLabelText("Addresses") as HTMLTextAreaElement;
+    await userEvent.type(textarea, "EQfirst");
+    const zone = within(dialog).getByTestId("register-dropzone");
+    const drop = (file: File) => {
+      const event = new Event("drop", { bubbles: true, cancelable: true });
+      Object.assign(event, { dataTransfer: { types: ["Files"], files: [file] } });
+      zone.dispatchEvent(event);
+    };
+    drop(new File([JSON.stringify({ addresses: [{ address: ADDRESS }] })], "list.json", { type: "application/json" }));
+    await waitFor(() => expect(textarea.value).toBe(`EQfirst\n${ADDRESS}`));
+    drop(new File(["not json"], "broken.json"));
+    await waitFor(() => expect(within(dialog).getByText("broken.json: That file is not valid JSON.")).toBeTruthy());
+    expect(textarea.value).toBe(`EQfirst\n${ADDRESS}`);
   });
 
   it("unlink sends DELETE with the encoded address after the confirm", async () => {

@@ -70,3 +70,60 @@ for (const route of ROUTES) {
     });
   }
 }
+
+// The register dialog: centered, wide, with a file drop zone (normal, drag-over, after a CSV import).
+test("register-dialog-owner: centered dialog, drop zone, CSV import, no serious axe findings", async ({ page, context }) => {
+  test.setTimeout(90_000);
+  await signIn(context, "owner");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  for (const theme of THEMES) {
+    await page.addInitScript((value) => {
+      try {
+        localStorage.setItem("tonobs.theme", value);
+      } catch {}
+    }, theme);
+    for (const size of WIDTHS) {
+      await page.setViewportSize(size);
+      await page.goto(`${PROJECT}/addresses`);
+      await settle(page);
+      await page.getByRole("button", { name: "Register addresses" }).first().click();
+      const dialog = page.getByRole("dialog", { name: "Register addresses" });
+      await expect(dialog).toBeVisible();
+      const box = (await dialog.boundingBox())!;
+      // Centered horizontally, not docked to the right edge.
+      expect(Math.abs(box.x + box.width / 2 - size.width / 2), `${size.width} dialog centered`).toBeLessThanOrEqual(2);
+      const tag = `register-dialog-owner-${size.width}-${theme}`;
+      await page.screenshot({ path: `shots/${tag}.png` });
+
+      await page.getByTestId("register-dropzone").evaluate((zone) => {
+        const data = new DataTransfer();
+        data.items.add(new File(["address\n"], "list.csv", { type: "text/csv" }));
+        zone.dispatchEvent(new DragEvent("dragenter", { bubbles: true, cancelable: true, dataTransfer: data }));
+      });
+      await expect(dialog.getByText("Drop a .csv or .json file to add its addresses")).toBeVisible();
+      await page.screenshot({ path: `shots/${tag}-dragging.png` });
+      await expectNoSeriousAxe(page, `${tag}-dragging`);
+      await page.getByTestId("register-dropzone").evaluate((zone) => {
+        const data = new DataTransfer();
+        data.items.add(new File(["address\n"], "list.csv", { type: "text/csv" }));
+        zone.dispatchEvent(new DragEvent("dragleave", { bubbles: true, dataTransfer: data }));
+      });
+
+      const raw = `0:${"AB".repeat(32)}`;
+      await page.getByTestId("register-file").setInputFiles({ name: "list.csv", mimeType: "text/csv", buffer: Buffer.from(`address,label\n${raw},main\n`) });
+      await expect(dialog.getByRole("textbox", { name: "Addresses" })).toHaveValue(raw);
+      await page.screenshot({ path: `shots/${tag}-imported.png` });
+      if (size.width === 1440 && theme === "light") writeFileSync("shots/html/register-dialog-owner.html", await page.content());
+      await expect(dialog.getByText("Drop a .csv or .json file to add its addresses")).toHaveCount(0);
+      await expectNoSeriousAxe(page, tag);
+    }
+  }
+});
+
+async function expectNoSeriousAxe(page: Page, tag: string) {
+  const axe = await new AxeBuilder({ page }).include('[role="dialog"]').withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+  const serious = axe.violations
+    .filter((violation) => violation.impact === "serious" || violation.impact === "critical")
+    .map((violation) => `${violation.id}: ${violation.nodes.map((node) => node.target.join(" ")).slice(0, 3).join(" | ")}`);
+  expect(serious, `${tag} axe`).toEqual([]);
+}

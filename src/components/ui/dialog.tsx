@@ -13,16 +13,18 @@ interface DialogProps {
   footer?: ReactNode;
   /** The one-time key modal closes only through its buttons. */
   dismissible?: boolean;
+  /** `wide` (720px) for forms with a long list, like registering addresses. */
+  size?: "default" | "wide";
 }
 
-export function Dialog({ open, onOpenChange, title, description, children, footer, dismissible = true }: DialogProps) {
+export function Dialog({ open, onOpenChange, title, description, children, footer, dismissible = true, size = "default" }: DialogProps) {
   const block = (event: Event) => event.preventDefault();
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="dialog-overlay fade-in" />
         <DialogPrimitive.Content
-          className="dialog-panel fade-in"
+          className={`dialog-panel fade-in${size === "wide" ? " dialog-panel-wide" : ""}`}
           onPointerDownOutside={dismissible ? undefined : block}
           onInteractOutside={dismissible ? undefined : block}
           onEscapeKeyDown={dismissible ? undefined : block}

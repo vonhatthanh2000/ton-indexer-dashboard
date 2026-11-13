@@ -831,6 +831,10 @@ h3 {
   }
 }
 
+.dialog-panel-wide {
+  width: min(720px, calc(100vw - 32px));
+}
+
 .dialog-panel-top {
   top: 96px;
   transform: translate(-50%, 0);

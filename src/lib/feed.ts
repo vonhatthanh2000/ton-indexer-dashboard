@@ -1,39 +1,30 @@
-import type { FeedTransaction, Transaction } from "./types";
+import type { Transaction, TransactionCursor } from "./types";
 
-export const FEED_MAX_ADDRESSES = 20;
-export const FEED_PER_ADDRESS = 10;
+/** Rows on the dashboard's "Latest transactions" card. */
 export const FEED_ROWS = 10;
+/** Live refresh of the newest page (the API's worker usually stores new rows within seconds). */
+export const LIVE_POLL_MS = 5_000;
 
-export const TRANSACTION_FIELDS = `hash lt utime time traceId inMsgOpcode sender value aborted fee outMsgs { destination value opcode }`;
+export const TRANSACTION_FIELDS = `account hash lt utime time traceId inMsgOpcode sender value aborted fee outMsgs { destination value opcode }`;
 
-/** One aliased query; addresses travel as variables, never inside the query text. */
-export function buildFeedQuery(addresses: string[]): { query: string; variables: Record<string, string> } | null {
-  const picked = addresses.slice(0, FEED_MAX_ADDRESSES);
-  if (picked.length === 0) return null;
-  const declarations = picked.map((_, index) => `$a${index}: String!`).join(", ");
-  const fields = picked
-    .map((_, index) => `a${index}: transactions(address: $a${index}, limit: ${FEED_PER_ADDRESS}) { ${TRANSACTION_FIELDS} }`)
-    .join("\n  ");
-  const variables = Object.fromEntries(picked.map((address, index) => [`a${index}`, address]));
-  return { query: `query DashboardFeed(${declarations}) {\n  ${fields}\n}`, variables };
+/** Every address of a project, newest first; page with `before` = the last row's cursor. */
+export const PROJECT_TRANSACTIONS_QUERY = `query DashboardProjectTransactions($id: String!, $limit: Int!, $before: TransactionCursor) {
+  projectTransactions(id: $id, limit: $limit, before: $before) { ${TRANSACTION_FIELDS} }
+}`;
+
+/** One address, newest first; page with `beforeLt` = the last row's lt. */
+export const ADDRESS_TRANSACTIONS_QUERY = `query DashboardTransactions($address: String!, $limit: Int!, $beforeLt: String) {
+  transactions(address: $address, limit: $limit, beforeLt: $beforeLt) { ${TRANSACTION_FIELDS} }
+}`;
+
+/** The cursor for the page after `page`, or undefined when a short page means there is nothing older. */
+export function nextCursor(page: Transaction[], limit: number): TransactionCursor | undefined {
+  if (page.length < limit) return undefined;
+  const last = page[page.length - 1];
+  return { utime: last.utime, lt: last.lt, account: last.account };
 }
 
-function compareDesc(a: string, b: string): number {
-  const left = BigInt(a);
-  const right = BigInt(b);
-  return left === right ? 0 : left > right ? -1 : 1;
-}
-
-/** Newest first across addresses: utime desc, then lt desc (BigInt). */
-export function mergeFeed(
-  data: Record<string, Transaction[] | null | undefined>,
-  addresses: string[],
-  limit = FEED_ROWS,
-): FeedTransaction[] {
-  const rows: FeedTransaction[] = [];
-  addresses.slice(0, FEED_MAX_ADDRESSES).forEach((account, index) => {
-    for (const tx of data[`a${index}`] ?? []) rows.push({ ...tx, account });
-  });
-  rows.sort((a, b) => compareDesc(a.utime, b.utime) || compareDesc(a.lt, b.lt));
-  return rows.slice(0, limit);
+/** Polls only while the first page alone is loaded, so "Load more" pages are not refetched every 5 s. */
+export function livePollInterval(pagesLoaded: number | undefined): number | false {
+  return pagesLoaded === 1 ? LIVE_POLL_MS : false;
 }

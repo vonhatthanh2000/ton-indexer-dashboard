@@ -16,9 +16,9 @@ import { can } from "@/lib/roles";
 import { toRaw } from "@/lib/ton";
 import type { Transaction } from "@/lib/types";
 import { NoAddressesYet } from "./dashboard";
-import { useProject, useTransactions } from "./hooks";
+import { useProject, useProjectTransactions, useTransactions } from "./hooks";
 import { useProjectScope } from "./scope";
-import { FlowCell, Opcode, friendly, projectBase } from "./tx-parts";
+import { FlowCell, Opcode, friendly, projectBase, txHref } from "./tx-parts";
 
 function rawOf(address: string | null): string | null {
   if (!address) return null;
@@ -31,7 +31,7 @@ function rawOf(address: string | null): string | null {
 
 function matches(tx: Transaction, needle: string): boolean {
   if (!needle) return true;
-  const values = [tx.hash, tx.sender, ...tx.outMsgs.map((message) => message.destination)];
+  const values = [tx.hash, tx.account, tx.sender, ...tx.outMsgs.map((message) => message.destination)];
   return values.some((value) => {
     if (!value) return false;
     if (value.toLowerCase().includes(needle)) return true;
@@ -47,9 +47,13 @@ export function TransactionsPage() {
   const project = useProject(projectId);
   const addresses = useMemo(() => project.data?.addresses ?? [], [project.data]);
   const requested = rawOf(params.get("address"));
-  const selected = addresses.find((row) => row.address === requested)?.address ?? addresses[0]?.address;
-  const requestedUnknown = Boolean(params.get("address")) && project.isSuccess && !addresses.some((row) => row.address === requested);
-  const tx = useTransactions(projectId, selected);
+  // No (or an unknown) ?address= means every address at once.
+  const selected = addresses.find((row) => row.address === requested)?.address ?? null;
+  const requestedUnknown = Boolean(params.get("address")) && project.isSuccess && selected === null;
+  const all = useProjectTransactions(projectId, project.isSuccess && addresses.length > 0 && selected === null);
+  const one = useTransactions(projectId, selected ?? undefined);
+  const tx = selected ? one : all;
+  const live = tx.data?.pages.length === 1;
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const rows = useMemo(() => tx.data?.pages.flat() ?? [], [tx.data]);
@@ -60,7 +64,7 @@ export function TransactionsPage() {
   function select(address: string) {
     setExpanded(new Set());
     setQuery("");
-    router.replace(`${pathname}?address=${encodeURIComponent(friendly(address))}`);
+    router.replace(address ? `${pathname}?address=${encodeURIComponent(friendly(address))}` : pathname);
   }
 
   function toggle(hash: string) {
@@ -79,7 +83,9 @@ export function TransactionsPage() {
         <CardHeader
           title="Transactions"
           titleId="tx-title"
-          subtitle="Newest first, for one address at a time"
+          subtitle={`${selected ? "Newest first for one address" : "Newest first across every address"}. ${
+            live ? "Updates every 5 seconds." : "Live updates pause while older pages are loaded."
+          }`}
           actions={
             addresses.length > 0 ? (
               <>
@@ -88,6 +94,7 @@ export function TransactionsPage() {
                     Address
                   </label>
                   <Select id="tx-address" className="mono" value={selected ?? ""} onChange={(event) => select(event.target.value)}>
+                    <option value="">All addresses</option>
                     {addresses.map((row) => (
                       <option key={row.address} value={row.address}>
                         {shorten(friendly(row.address), 8, 6)}
@@ -112,10 +119,10 @@ export function TransactionsPage() {
         />
         {requestedUnknown ? (
           <p role="alert" className="mb-4 rounded-control bg-err-soft px-4 py-3 text-err">
-            {errorText({ code: "FORBIDDEN" })} Showing the first address instead.
+            {errorText({ code: "FORBIDDEN" })} Showing all addresses instead.
           </p>
         ) : null}
-        {project.isLoading || (tx.isLoading && Boolean(selected)) ? (
+        {project.isLoading || tx.isLoading ? (
           <SkeletonRows rows={6} columns={6} />
         ) : project.error ? (
           <ErrorState message={errorText({ code: errorCode(project.error) })} onRetry={() => void project.refetch()} />
@@ -134,9 +141,10 @@ export function TransactionsPage() {
             ) : null}
             <div className="table-scroll">
               <table className="data-table">
-                <caption className="sr-only">Transactions of {selected ? friendly(selected) : ""}</caption>
+                <caption className="sr-only">{selected ? `Transactions of ${friendly(selected)}` : `Transactions of every address in ${projectName}`}</caption>
                 <thead>
                   <tr>
+                    {selected ? null : <th scope="col">Address</th>}
                     <th scope="col">Tx hash</th>
                     <th scope="col">Time</th>
                     <th scope="col">From → Out</th>
@@ -151,11 +159,15 @@ export function TransactionsPage() {
                 </thead>
                 <tbody>
                   {visible.map((row) => {
-                    const open = expanded.has(row.hash);
-                    const detailId = `tx-${row.lt}`;
+                    const rowKey = `${row.account}-${row.hash}`;
+                    const open = expanded.has(rowKey);
+                    const detailId = `tx-${row.account.replace(/[^0-9A-Za-z]/g, "")}-${row.lt}`;
                     return (
-                      <Fragment key={row.hash}>
+                      <Fragment key={rowKey}>
                         <tr>
+                          {selected ? null : (
+                            <td><AddressChip address={row.account} href={txHref(projectId, row.account)} /></td>
+                          )}
                           <td><HashChip hash={row.hash} /></td>
                           <td><RelativeTime iso={row.time} /></td>
                           <td><FlowCell tx={row} /></td>
@@ -170,7 +182,7 @@ export function TransactionsPage() {
                               aria-expanded={open}
                               aria-controls={detailId}
                               aria-label={open ? "Hide details" : "Show details"}
-                              onClick={() => toggle(row.hash)}
+                              onClick={() => toggle(rowKey)}
                             >
                               <ChevronDown size={18} strokeWidth={1.5} className={open ? "rotate-180" : undefined} />
                             </button>
@@ -178,7 +190,7 @@ export function TransactionsPage() {
                         </tr>
                         {open ? (
                           <tr id={detailId}>
-                            <td colSpan={8} className="bg-surface-2">
+                            <td colSpan={selected ? 8 : 9} className="bg-surface-2">
                               <TxDetail tx={row} />
                             </td>
                           </tr>

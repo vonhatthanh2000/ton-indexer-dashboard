@@ -154,6 +154,8 @@ export interface OutMessage {
 }
 
 export interface Transaction {
+  /** The project address this transaction belongs to (raw `0:HEX`). */
+  account: string;
   hash: string;
   lt: string;
   utime: string;
@@ -167,8 +169,10 @@ export interface Transaction {
   outMsgs: OutMessage[];
 }
 
-/** A transaction with the tracked address it was read for. */
-export interface FeedTransaction extends Transaction {
+/** `projectTransactions` paging: the last row of the previous page. */
+export interface TransactionCursor {
+  utime: string;
+  lt: string;
   account: string;
 }
 
