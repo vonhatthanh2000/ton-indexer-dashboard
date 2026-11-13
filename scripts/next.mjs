@@ -4,7 +4,9 @@
 import { spawn } from "node:child_process";
 
 const DEFAULT_PORT = 3100;
-const HOST = "127.0.0.1"; // local only: the session cookie has no Secure flag over plain http
+// Local only. Browse via http://localhost:<port>, not 127.0.0.1: the API's `__Host-session` cookie is
+// Secure, and browsers accept a Secure cookie over plain http only on localhost.
+const HOST = "127.0.0.1";
 
 const command = process.argv[2];
 if (command !== "dev" && command !== "start") {

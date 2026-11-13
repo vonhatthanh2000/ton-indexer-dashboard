@@ -1,101 +1,185 @@
 "use client";
 
-import { ArrowRight, Inbox, Search } from "lucide-react";
+import { ArrowRight, Inbox, Plus, Unlink } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useState } from "react";
+import { toast } from "sonner";
 import { AddressChip } from "@/components/chain/address-chip";
 import { AddressStatusPill, addressStatus } from "@/components/chain/status-pills";
 import { LtText } from "@/components/chain/values";
 import { PageHeader } from "@/components/shell/page-header";
-import { Card, CardHeader, DataTable, EmptyState, ErrorState, Pagination, SkeletonRows } from "@/components/ui";
+import { Button, Card, CardHeader, DataTable, Dialog, EmptyState, ErrorState, Pill, PrevNext, SkeletonRows, Tooltip } from "@/components/ui";
 import { errorCode } from "@/lib/client";
 import { errorText } from "@/lib/errors";
-import { exactNumber } from "@/lib/format";
-import { filterBy, paginate } from "@/lib/paging";
-import { toFriendly } from "@/lib/ton";
-import type { ProjectAddress } from "@/lib/types";
-import { useMyProject } from "./hooks";
-import { txHref } from "./tx-parts";
+import { hasNextPage } from "@/lib/paging";
+import { can } from "@/lib/roles";
+import type { AdminAddress } from "@/lib/types";
+import { NoAddressesYet } from "./dashboard";
+import { ADDRESS_PAGE_SIZE, useAddressPage, useOnRoleDenied, useUnlinkAddress } from "./hooks";
+import { RegisterAddressesDrawer } from "./register-drawer";
+import { useProjectScope } from "./scope";
+import { friendly, projectBase, txHref } from "./tx-parts";
 
-const PAGE_SIZE = 20;
-
-function friendly(address: string): string {
-  try {
-    return toFriendly(address);
-  } catch {
-    return address;
-  }
-}
-
+/** `/projects/[id]/addresses`: server pages of 100; owners and editors register and unlink. */
 export function AddressesPage() {
-  const { data, isLoading, error, refetch } = useMyProject();
-  const [query, setQuery] = useState("");
-  const [page, setPage] = useState(1);
-  const all = useMemo(() => data?.addresses ?? [], [data]);
-  const filtered = useMemo(() => filterBy(all, query, (row) => [row.address, friendly(row.address)]), [all, query]);
-  const current = paginate(filtered, page, PAGE_SIZE);
+  const { projectId, projectName, role } = useProjectScope();
+  const canWrite = can(role, "writeAddresses");
+  const [offset, setOffset] = useState(0);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [unlinking, setUnlinking] = useState<AdminAddress | null>(null);
+  const query = useAddressPage(projectId, offset);
+  const unlink = useUnlinkAddress(projectId, offset);
+  const onRoleDenied = useOnRoleDenied();
+  const rows = query.data?.addresses ?? [];
+  const syncing = rows.some((row) => row.stillSyncing);
+
+  function confirmUnlink() {
+    if (!unlinking) return;
+    const address = unlinking.address;
+    setUnlinking(null);
+    unlink.mutate(address, {
+      onSuccess: () => toast.success("Address unlinked."),
+      onError: (caught) => {
+        onRoleDenied(caught);
+        toast.error(errorText({ code: errorCode(caught) }));
+      },
+    });
+  }
+
+  const registerButton = canWrite ? (
+    <Button variant="primary" onClick={() => setDrawerOpen(true)}>
+      <Plus size={18} strokeWidth={1.75} aria-hidden="true" />
+      Register addresses
+    </Button>
+  ) : null;
 
   return (
     <>
-      <PageHeader title="Addresses" crumbs={[{ label: "Dashboard", href: "/project" }, { label: "Addresses" }]} />
-      <Card aria-labelledby="pm-addresses-title">
+      <PageHeader title="Addresses" crumbs={[{ label: projectName, href: projectBase(projectId) }, { label: "Addresses" }]} />
+      <Card aria-labelledby="addresses-title">
         <CardHeader
           title="Addresses"
-          titleId="pm-addresses-title"
-          subtitle={data ? `${exactNumber(all.length)} tracked by ${data.name}` : "Addresses your project tracks"}
-          actions={
-            <div className="relative w-72 max-w-full">
-              <Search size={16} strokeWidth={1.5} aria-hidden="true" className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-ink-2" />
-              <input
-                type="search"
-                value={query}
-                onChange={(event) => {
-                  setQuery(event.target.value);
-                  setPage(1);
-                }}
-                placeholder="Search EQ…, UQ… or 0:…"
-                aria-label="Search addresses"
-                className="input pl-10"
-              />
-            </div>
+          titleId="addresses-title"
+          subtitle={
+            syncing
+              ? "History is still syncing for some addresses. This page refreshes every 10 seconds."
+              : `Addresses ${projectName} indexes, with their sync state`
           }
+          actions={query.isSuccess ? registerButton : null}
         />
-        {isLoading ? (
-          <SkeletonRows rows={6} columns={4} />
-        ) : error ? (
-          <ErrorState message={errorText({ code: errorCode(error) })} onRetry={() => void refetch()} />
-        ) : all.length === 0 ? (
-          <EmptyState icon={Inbox} title="No addresses yet" body="Ask your admin to register them." />
-        ) : filtered.length === 0 ? (
-          <EmptyState icon={Search} title="No addresses match" body="Try another form of the address." />
+        {query.isLoading ? (
+          <SkeletonRows rows={5} columns={5} />
+        ) : query.error ? (
+          <ErrorState message={errorText({ code: errorCode(query.error) })} onRetry={() => void query.refetch()} />
+        ) : rows.length === 0 && offset === 0 ? (
+          canWrite ? (
+            <EmptyState
+              icon={Inbox}
+              title="No addresses yet"
+              body="Register the addresses this project should index."
+              action={
+                <Button variant="primary" onClick={() => setDrawerOpen(true)}>
+                  Register addresses
+                </Button>
+              }
+            />
+          ) : (
+            <NoAddressesYet projectId={projectId} canWrite={false} />
+          )
+        ) : rows.length === 0 ? (
+          <>
+            <EmptyState icon={Inbox} title="No more addresses" />
+            <PrevNext
+              label="Address pages"
+              hasPrevious={offset > 0}
+              hasNext={false}
+              onPrevious={() => setOffset(Math.max(0, offset - ADDRESS_PAGE_SIZE))}
+              onNext={() => {}}
+            />
+          </>
         ) : (
           <>
-            <DataTable<ProjectAddress>
-              caption="Tracked addresses"
-              rows={current.rows}
+            <DataTable<AdminAddress>
+              caption={`Addresses of ${projectName}`}
+              rows={rows}
               rowKey={(row) => row.address}
               columns={[
-                { key: "address", header: "Address", cell: (row) => <AddressChip address={row.address} href={txHref(row.address)} /> },
+                { key: "address", header: "Address", cell: (row) => <AddressChip address={row.address} href={txHref(projectId, row.address)} /> },
                 { key: "state", header: "State", cell: (row) => <AddressStatusPill status={addressStatus(row)} /> },
                 { key: "start", header: "Start lt", cell: (row) => (row.startLt === null ? <span className="text-ink-2">pending</span> : <LtText lt={row.startLt} />) },
                 { key: "last", header: "Last lt", cell: (row) => <LtText lt={row.lastLt} /> },
                 {
-                  key: "open",
-                  header: "Transactions",
+                  key: "error",
+                  header: "Last error",
+                  cell: (row) =>
+                    row.lastError ? (
+                      <Tooltip content={row.lastError}>
+                        <span tabIndex={0} aria-label={`Error: ${row.lastError}`}>
+                          <Pill tone="err" dot>
+                            Error
+                          </Pill>
+                        </span>
+                      </Tooltip>
+                    ) : (
+                      <span className="text-ink-2">—</span>
+                    ),
+                },
+                {
+                  key: "actions",
+                  header: "Actions",
                   className: "text-right",
                   cell: (row) => (
-                    <Link href={txHref(row.address)} className="btn btn-secondary" aria-label={`View transactions of ${friendly(row.address)}`}>
-                      View
-                      <ArrowRight size={16} strokeWidth={1.5} aria-hidden="true" />
-                    </Link>
+                    <span className="inline-flex flex-wrap justify-end gap-2">
+                      <Link href={txHref(projectId, row.address)} className="btn btn-secondary" aria-label={`View transactions of ${friendly(row.address)}`}>
+                        View
+                        <ArrowRight size={16} strokeWidth={1.5} aria-hidden="true" />
+                      </Link>
+                      {canWrite ? (
+                        <Button onClick={() => setUnlinking(row)} aria-label={`Unlink ${friendly(row.address)}`}>
+                          <Unlink size={16} strokeWidth={1.5} aria-hidden="true" />
+                          Unlink
+                        </Button>
+                      ) : null}
+                    </span>
                   ),
                 },
               ]}
             />
-            <Pagination page={current.page} pageCount={current.pageCount} onPage={setPage} label="Address pages" />
+            <PrevNext
+              label="Address pages"
+              hasPrevious={offset > 0}
+              hasNext={hasNextPage(rows.length, ADDRESS_PAGE_SIZE)}
+              onPrevious={() => setOffset(Math.max(0, offset - ADDRESS_PAGE_SIZE))}
+              onNext={() => setOffset(offset + ADDRESS_PAGE_SIZE)}
+            />
           </>
         )}
       </Card>
+
+      {canWrite ? (
+        <>
+          <RegisterAddressesDrawer projectId={projectId} open={drawerOpen} onOpenChange={setDrawerOpen} />
+          <Dialog
+            open={unlinking !== null}
+            onOpenChange={(open) => (open ? undefined : setUnlinking(null))}
+            title="Unlink this address?"
+            description={
+              <>
+                <span className="mono break-all text-ink">{unlinking ? friendly(unlinking.address) : ""}</span> stops
+                being part of {projectName}. Its data stays in the indexer.
+              </>
+            }
+            footer={
+              <>
+                <Button onClick={() => setUnlinking(null)}>Cancel</Button>
+                <Button variant="danger" onClick={confirmUnlink}>
+                  Unlink address
+                </Button>
+              </>
+            }
+          />
+        </>
+      ) : null}
     </>
   );
 }

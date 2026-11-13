@@ -1,8 +1,6 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { sealData } from "iron-session";
 import { describe, expect, it } from "vitest";
-import { MAX_PROJECT_KEYS, withProjectKey, type ProjectKeyEntry } from "@/server/session";
 
 function tsxFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -31,16 +29,5 @@ describe("styling comes from tokens (PLAN.md acceptance criteria)", () => {
         .filter(({ text }) => /\[\d+(?:\.\d+)?px\]/.test(text) || /:\s*"[^"]*\d+px[^"]*"/.test(text)),
     );
     expect(hits).toEqual([]);
-  });
-});
-
-describe("project-keys cookie size", () => {
-  it("20 entries stay under the 4 KB cookie limit", async () => {
-    let entries: ProjectKeyEntry[] = [];
-    for (let index = 0; index < MAX_PROJECT_KEYS; index += 1) {
-      entries = withProjectKey(entries, crypto.randomUUID(), "k".repeat(43), Date.now() + index);
-    }
-    const sealed = await sealData({ entries }, { password: process.env.SESSION_SECRET!, ttl: 43200 });
-    expect(`tonobs_pkeys=${sealed}; Path=/; HttpOnly; SameSite=Strict`.length).toBeLessThan(4000);
   });
 });

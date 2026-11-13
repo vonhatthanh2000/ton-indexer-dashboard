@@ -1,9 +1,10 @@
 "use client";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, type ReactNode } from "react";
 import { Toaster } from "sonner";
-import { ApiError, GqlError } from "@/lib/client";
+import { ApiError, GqlError, configureClient } from "@/lib/client";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 // No retry on 4xx; once on 5xx and network errors.
@@ -23,10 +24,24 @@ export function makeQueryClient(): QueryClient {
   });
 }
 
+// Lets lib/client.ts route to `/` and refetch ["me"] when a project is gone.
+function ClientEffectsBridge() {
+  const router = useRouter();
+  const client = useQueryClient();
+  useEffect(() => {
+    configureClient({
+      push: (url) => router.push(url),
+      invalidateMe: () => void client.invalidateQueries({ queryKey: ["me"] }),
+    });
+  }, [router, client]);
+  return null;
+}
+
 export function Providers({ children }: { children: ReactNode }) {
   const [client] = useState(makeQueryClient);
   return (
     <QueryClientProvider client={client}>
+      <ClientEffectsBridge />
       <TooltipProvider delayDuration={300}>{children}</TooltipProvider>
       <Toaster position="bottom-right" toastOptions={{ className: "toast" }} />
     </QueryClientProvider>

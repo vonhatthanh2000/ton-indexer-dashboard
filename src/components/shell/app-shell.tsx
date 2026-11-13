@@ -3,13 +3,19 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import type { SessionInfo } from "@/lib/types";
+import { useMe } from "@/features/auth/use-me";
+import type { Me } from "@/lib/types";
 import { CommandSearch } from "./command-search";
 import { SidebarContent } from "./sidebar";
 import { TopBar } from "./topbar";
 import { useMediaQuery } from "./use-media";
 
-export function AppShell({ session, children }: { session: SessionInfo; children: ReactNode }) {
+/**
+ * `initialMe` comes from the server layout; the shell follows the client ["me"] query (seeded with
+ * the same value), so a role or project change shows up after an invalidation.
+ */
+export function AppShell({ me: initialMe, children }: { me: Me; children: ReactNode }) {
+  const me = useMe().data ?? initialMe;
   const isMobile = useMediaQuery("(max-width: 767px)");
   const isTablet = useMediaQuery("(min-width: 768px) and (max-width: 1279px)");
   // null = follow the width: icon rail on tablet, full sidebar on desktop.
@@ -49,7 +55,7 @@ export function AppShell({ session, children }: { session: SessionInfo; children
       </a>
       <aside className="app-sidebar" aria-label="Sidebar">
         <div className="app-sidebar-inner">
-          <SidebarContent session={session} collapsed={collapsed && !isMobile} />
+          <SidebarContent me={me} collapsed={collapsed && !isMobile} />
         </div>
       </aside>
       <DialogPrimitive.Root open={drawerOpen && isMobile} onOpenChange={setDrawerOpen}>
@@ -57,13 +63,13 @@ export function AppShell({ session, children }: { session: SessionInfo; children
           <DialogPrimitive.Overlay className="dialog-overlay fade-in" />
           <DialogPrimitive.Content className="drawer-left slide-in" aria-describedby={undefined}>
             <DialogPrimitive.Title className="sr-only">Main menu</DialogPrimitive.Title>
-            <SidebarContent session={session} collapsed={false} onNavigate={() => setDrawerOpen(false)} />
+            <SidebarContent me={me} collapsed={false} onNavigate={() => setDrawerOpen(false)} />
           </DialogPrimitive.Content>
         </DialogPrimitive.Portal>
       </DialogPrimitive.Root>
       <div className="min-w-0">
         <TopBar
-          session={session}
+          me={me}
           menuExpanded={isMobile ? drawerOpen : !collapsed}
           onMenu={onMenu}
           onSearch={() => setSearchOpen(true)}
@@ -72,7 +78,7 @@ export function AppShell({ session, children }: { session: SessionInfo; children
           {children}
         </main>
       </div>
-      <CommandSearch session={session} open={searchOpen} onOpenChange={setSearchOpen} />
+      <CommandSearch me={me} open={searchOpen} onOpenChange={setSearchOpen} />
     </div>
   );
 }

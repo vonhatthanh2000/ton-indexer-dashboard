@@ -1,4 +1,7 @@
-// Every browser call goes through here: `/api/*` on this origin only (PLAN.md Decisions › Client).
+// Every browser call goes through here: `/api/*` and `/auth/*` on this origin only, which the
+// dashboard forwards to ton-observer (PLAN.md Decisions › Client errors). The session is the API's
+// `__Host-session` cookie; the browser sends it and its own `Origin` header, nothing else is added.
+import { safeNextPath } from "@/features/auth/next-path";
 import type { HealthState } from "./types";
 
 export class ApiError extends Error {
@@ -30,13 +33,32 @@ export interface ApiFetchOptions {
   signal?: AbortSignal;
 }
 
-type Navigate = (url: string) => void;
+/** Side effects of an error reply; `ClientEffectsBridge` wires the router and the query client. */
+export interface ClientEffects {
+  /** A full page load: the client cache goes with it. */
+  navigate: (url: string) => void;
+  /** A client-side route change. */
+  push: (url: string) => void;
+  /** Refetch `["me"]`: the user's projects or roles changed. */
+  invalidateMe: () => void;
+}
 
-let navigate: Navigate = (url) => window.location.assign(url);
+const defaultEffects: ClientEffects = {
+  navigate: (url) => window.location.assign(url),
+  push: (url) => window.location.assign(url),
+  invalidateMe: () => {},
+};
 
-/** Tests swap the navigation; the app never does. */
-export function setNavigate(next: Navigate): void {
-  navigate = next;
+let effects: ClientEffects = { ...defaultEffects };
+
+/** The app wires the router and the query client here once; tests swap them. */
+export function configureClient(next: Partial<ClientEffects>): void {
+  effects = { ...effects, ...next };
+}
+
+/** Back to the defaults (tests). */
+export function resetClient(): void {
+  effects = { ...defaultEffects };
 }
 
 function currentPath(): string {
@@ -44,9 +66,10 @@ function currentPath(): string {
   return `${window.location.pathname}${window.location.search}`;
 }
 
+/** `/login?reason=expired`, plus `next` when the current page is a workspace page. */
 export function loginUrlForExpiry(path = currentPath()): string {
-  const next = path.startsWith("/admin") || path.startsWith("/project") ? `&next=${encodeURIComponent(path)}` : "";
-  return `/login?reason=expired${next}`;
+  const next = safeNextPath(path);
+  return next === null ? "/login?reason=expired" : `/login?reason=expired&next=${encodeURIComponent(next)}`;
 }
 
 function toApiError(status: number, body: unknown): ApiError {
@@ -59,6 +82,23 @@ function toApiError(status: number, body: unknown): ApiError {
     typeof data.index === "number" ? data.index : undefined,
     typeof data.problem === "string" ? data.problem : undefined,
   );
+}
+
+function signedOut(): void {
+  effects.navigate(loginUrlForExpiry());
+}
+
+function projectGone(): void {
+  effects.invalidateMe();
+  effects.push("/");
+}
+
+// Any 401 but a wrong password means the session is gone (not_logged_in, missing_api_key and
+// missing_admin_key all reach here when the cookie expired).
+function handleError(error: ApiError): ApiError {
+  if (error.status === 401 && error.code !== "invalid_credentials") signedOut();
+  else if (error.status === 404 && error.code === "project_not_found") projectGone();
+  return error;
 }
 
 async function readBody(response: Response): Promise<unknown> {
@@ -78,7 +118,6 @@ async function send(path: string, options: ApiFetchOptions): Promise<Response> {
       method,
       headers: {
         Accept: "application/json",
-        ...(method === "GET" ? {} : { "X-Requested-With": "dashboard" }),
         ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
       },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
@@ -92,15 +131,12 @@ async function send(path: string, options: ApiFetchOptions): Promise<Response> {
   }
 }
 
-/** Throws ApiError on any non-2xx; handles session_expired and wrong_role by navigating. */
+/** Throws ApiError on any non-2xx; a lost session or a gone project also navigates. */
 export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise<T> {
   const response = await send(path, options);
   const body = await readBody(response);
   if (response.ok) return body as T;
-  const error = toApiError(response.status, body);
-  if (error.code === "session_expired") navigate(loginUrlForExpiry());
-  if (error.code === "wrong_role") navigate("/");
-  throw error;
+  throw handleError(toApiError(response.status, body));
 }
 
 interface GraphqlReply<T> {
@@ -108,20 +144,32 @@ interface GraphqlReply<T> {
   errors?: { message?: string; extensions?: { code?: string } }[];
 }
 
-/** Throws GqlError on the first error, even with HTTP 200. */
+function toGqlError(code: string, message: string): GqlError {
+  if (code === "UNAUTHENTICATED") {
+    signedOut();
+    return new GqlError(code, message);
+  }
+  if (code === "FORBIDDEN") {
+    if (message === "Origin: not allowed") return new GqlError("bad_origin", message);
+    // `project(id:)` on a project the caller can't read: gone, or no longer a member.
+    if (message.startsWith("id:")) {
+      projectGone();
+      return new GqlError("project_not_found", message);
+    }
+  }
+  // FORBIDDEN "address: …" stays FORBIDDEN: the hook refetches the project and retries once.
+  return new GqlError(code, message);
+}
+
+/** Throws GqlError on the first error, even with HTTP 200; ApiError on a non-GraphQL failure. */
 export async function gql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
   const response = await send("/api/graphql", { method: "POST", body: { query, variables } });
   const body = (await readBody(response)) as GraphqlReply<T> | { error?: string } | undefined;
   if (body && "errors" in body && body.errors && body.errors.length > 0) {
     const first = body.errors[0];
-    throw new GqlError(first.extensions?.code ?? "INTERNAL_SERVER_ERROR", first.message ?? "");
+    throw toGqlError(first.extensions?.code ?? "INTERNAL_SERVER_ERROR", first.message ?? "");
   }
-  if (!response.ok) {
-    const error = toApiError(response.status, body);
-    if (error.code === "session_expired") navigate(loginUrlForExpiry());
-    if (error.code === "wrong_role") navigate("/");
-    throw error;
-  }
+  if (!response.ok) throw handleError(toApiError(response.status, body));
   const data = (body as GraphqlReply<T> | undefined)?.data;
   if (data === undefined || data === null) throw new GqlError("INTERNAL_SERVER_ERROR", "");
   return data;

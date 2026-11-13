@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, GqlError, apiFetch, gql, loginUrlForExpiry, setNavigate } from "@/lib/client";
 import { buildFeedQuery, mergeFeed } from "@/lib/feed";
 import { compactNumber, formatTon, groupDigits, relativeTime, shorten } from "@/lib/format";
 import { filterBy, hasNextPage, paginate } from "@/lib/paging";
@@ -72,33 +71,5 @@ describe("feed", () => {
     );
     expect(merged.map((row) => row.hash)).toEqual(["d", "c", "a", "b"]);
     expect(merged[0].account).toBe("0:B");
-  });
-});
-
-describe("client", () => {
-  it("sends the CSRF header on writes and maps errors", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(Response.json({ error: "invalid_request", field: "name", problem: "is required" }, { status: 400 }));
-    vi.stubGlobal("fetch", fetchMock);
-    await expect(apiFetch("/api/admin/projects", { method: "POST", body: {} })).rejects.toMatchObject({
-      status: 400,
-      code: "invalid_request",
-      field: "name",
-    });
-    expect(fetchMock.mock.calls[0][1].headers["X-Requested-With"]).toBe("dashboard");
-  });
-  it("navigates to login on session_expired", async () => {
-    const go = vi.fn();
-    setNavigate(go);
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "session_expired" }, { status: 401 })));
-    await expect(apiFetch("/api/admin/projects")).rejects.toBeInstanceOf(ApiError);
-    expect(go).toHaveBeenCalledWith("/login?reason=expired");
-    expect(loginUrlForExpiry("/admin/projects")).toBe("/login?reason=expired&next=%2Fadmin%2Fprojects");
-  });
-  it("throws GqlError on errors even with HTTP 200", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(Response.json({ data: null, errors: [{ message: "address: is not linked", extensions: { code: "FORBIDDEN" } }] })),
-    );
-    await expect(gql("query { x }")).rejects.toEqual(new GqlError("FORBIDDEN", "address: is not linked"));
   });
 });

@@ -8,18 +8,39 @@ import { HashChip } from "@/components/chain/hash-chip";
 import { TxStatusPill, addressStatus } from "@/components/chain/status-pills";
 import { RelativeTime, TonAmount } from "@/components/chain/values";
 import { PageHeader } from "@/components/shell/page-header";
-import { Card, CardHeader, DataTable, EmptyState, ErrorState, KpiCard, SkeletonRows } from "@/components/ui";
+import { ButtonLink, Card, CardHeader, DataTable, EmptyState, ErrorState, KpiCard, SkeletonRows } from "@/components/ui";
 import { errorCode } from "@/lib/client";
 import { errorText } from "@/lib/errors";
 import { exactNumber } from "@/lib/format";
+import { can } from "@/lib/roles";
 import type { FeedTransaction } from "@/lib/types";
-import { useLatestFeed, useMyProject } from "./hooks";
-import { FlowCell, txHref } from "./tx-parts";
+import { useLatestFeed, useProject } from "./hooks";
+import { useProjectScope } from "./scope";
+import { FlowCell, projectBase, txHref } from "./tx-parts";
+
+/** "No addresses yet": a writer gets a link to register them, everyone else whom to ask. */
+export function NoAddressesYet({ projectId, canWrite }: { projectId: string; canWrite: boolean }) {
+  return canWrite ? (
+    <EmptyState
+      icon={Inbox}
+      title="No addresses yet"
+      body="Register the addresses this project should index."
+      action={
+        <ButtonLink href={`${projectBase(projectId)}/addresses`} variant="primary">
+          Go to addresses
+        </ButtonLink>
+      }
+    />
+  ) : (
+    <EmptyState icon={Inbox} title="No addresses yet" body="Ask a project owner or editor to register them." />
+  );
+}
 
 export function ProjectDashboard() {
-  const project = useMyProject({ refetchOnWindowFocus: true });
+  const { projectId, projectName, role } = useProjectScope();
+  const project = useProject(projectId, { refetchOnWindowFocus: true });
   const addresses = useMemo(() => project.data?.addresses.map((row) => row.address), [project.data]);
-  const feed = useLatestFeed(addresses);
+  const feed = useLatestFeed(projectId, addresses);
   const rows = project.data?.addresses ?? [];
   const statuses = rows.map(addressStatus);
   const live = statuses.filter((status) => status === "live").length;
@@ -28,7 +49,7 @@ export function ProjectDashboard() {
 
   return (
     <>
-      <PageHeader title="Dashboard" crumbs={[{ label: "Dashboard" }]} />
+      <PageHeader title="Dashboard" crumbs={[{ label: "Projects", href: "/" }, { label: projectName }]} />
       <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
         <KpiCard icon={Wallet} label="Tracked addresses" loading={project.isLoading} value={projectError ? "—" : exactNumber(rows.length)} />
         <KpiCard icon={Activity} label="Live" loading={project.isLoading} value={projectError ? "—" : exactNumber(live)} />
@@ -39,10 +60,10 @@ export function ProjectDashboard() {
         <CardHeader
           title="Latest transactions"
           titleId="feed-title"
-          subtitle={rows.length > 20 ? "Newest across your first 20 addresses" : "Newest across your addresses"}
+          subtitle={rows.length > 20 ? "Newest across the first 20 addresses" : "Newest across the project's addresses"}
           actions={
             rows.length > 0 ? (
-              <Link href="/project/transactions" className="link font-medium">
+              <Link href={`${projectBase(projectId)}/transactions`} className="link font-medium">
                 View all transactions →
               </Link>
             ) : null
@@ -53,7 +74,7 @@ export function ProjectDashboard() {
         ) : projectError ? (
           <ErrorState message={projectError} onRetry={() => void project.refetch()} />
         ) : rows.length === 0 ? (
-          <EmptyState icon={Inbox} title="No addresses yet" body="Ask your admin to register them." />
+          <NoAddressesYet projectId={projectId} canWrite={can(role, "writeAddresses")} />
         ) : feed.error ? (
           <ErrorState message={errorText({ code: errorCode(feed.error) })} onRetry={() => void feed.refetch()} />
         ) : (feed.data ?? []).length === 0 ? (
@@ -64,7 +85,7 @@ export function ProjectDashboard() {
             rows={feed.data ?? []}
             rowKey={(row) => `${row.account}-${row.hash}`}
             columns={[
-              { key: "address", header: "Address", cell: (row) => <AddressChip address={row.account} href={txHref(row.account)} /> },
+              { key: "address", header: "Address", cell: (row) => <AddressChip address={row.account} href={txHref(projectId, row.account)} /> },
               { key: "hash", header: "Tx hash", cell: (row) => <HashChip hash={row.hash} /> },
               { key: "flow", header: "From → Out", cell: (row) => <FlowCell tx={row} /> },
               { key: "value", header: "Value", cell: (row) => <TonAmount nano={row.value} /> },

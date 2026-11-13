@@ -6,14 +6,21 @@ import { Pill } from "@/components/ui/pill";
 import { toFriendly } from "@/lib/ton";
 import type { Transaction } from "@/lib/types";
 
-export function txHref(address: string): string {
-  let value = address;
+export function friendly(address: string): string {
   try {
-    value = toFriendly(address);
+    return toFriendly(address);
   } catch {
-    /* keep the raw value */
+    return address;
   }
-  return `/project/transactions?address=${encodeURIComponent(value)}`;
+}
+
+/** The project's base path, `/projects/<id>`. */
+export function projectBase(projectId: string): string {
+  return `/projects/${encodeURIComponent(projectId)}`;
+}
+
+export function txHref(projectId: string, address: string): string {
+  return `${projectBase(projectId)}/transactions?address=${encodeURIComponent(friendly(address))}`;
 }
 
 /** sender → first out-message destination (+N more). */

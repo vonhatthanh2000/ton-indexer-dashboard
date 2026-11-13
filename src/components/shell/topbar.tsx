@@ -2,14 +2,14 @@
 
 import * as MenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, LogOut, Menu as MenuIcon, Moon, Search, Settings, Sun } from "lucide-react";
+import { ChevronDown, LogOut, Menu as MenuIcon, Moon, Search, Sun, UserRound } from "lucide-react";
 import Link from "next/link";
 import { useSyncExternalStore } from "react";
 import { Identicon } from "@/components/chain/identicon";
 import { Tooltip } from "@/components/ui/tooltip";
-import { signOut } from "@/features/auth/session-actions";
+import { signOut } from "@/features/auth/sign-out";
 import { fetchHealth } from "@/lib/client";
-import type { HealthState, SessionInfo } from "@/lib/types";
+import type { HealthState, Me } from "@/lib/types";
 
 const HEALTH_TEXT: Record<HealthState, string> = {
   online: "API online",
@@ -67,15 +67,14 @@ export function ThemeToggle() {
   );
 }
 
-export function UserMenu({ session }: { session: SessionInfo }) {
+export function UserMenu({ me }: { me: Me }) {
   const client = useQueryClient();
-  const name = session.role === "admin" ? "Admin" : (session.projectName ?? "Project");
-  const settingsHref = session.role === "admin" ? "/admin/settings" : "/project/settings";
+  const name = me.user.name ?? me.user.email;
   return (
     <MenuPrimitive.Root>
       <MenuPrimitive.Trigger asChild>
         <button type="button" className="flex h-11 items-center gap-3 rounded-control px-2" aria-label={`Account menu, ${name}`}>
-          <Identicon seed={session.projectId ?? session.role} size={32} />
+          <Identicon seed={me.user.id} size={32} />
           <span className="hidden max-w-40 truncate font-medium md:inline">{name}</span>
           <ChevronDown size={16} strokeWidth={1.5} aria-hidden="true" className="text-ink-2" />
         </button>
@@ -84,9 +83,9 @@ export function UserMenu({ session }: { session: SessionInfo }) {
         <MenuPrimitive.Content align="end" sideOffset={8} className="menu-panel fade-in">
           <MenuPrimitive.Label className="px-3 py-2 text-label text-ink-2">Signed in as {name}</MenuPrimitive.Label>
           <MenuPrimitive.Item asChild className="menu-item">
-            <Link href={settingsHref}>
-              <Settings size={16} strokeWidth={1.5} aria-hidden="true" />
-              Settings
+            <Link href="/account">
+              <UserRound size={16} strokeWidth={1.5} aria-hidden="true" />
+              Account
             </Link>
           </MenuPrimitive.Item>
           <MenuPrimitive.Item className="menu-item" onSelect={() => void signOut(client)}>
@@ -100,12 +99,12 @@ export function UserMenu({ session }: { session: SessionInfo }) {
 }
 
 export function TopBar({
-  session,
+  me,
   menuExpanded,
   onMenu,
   onSearch,
 }: {
-  session: SessionInfo;
+  me: Me;
   menuExpanded: boolean;
   onMenu: () => void;
   onSearch: () => void;
@@ -123,7 +122,7 @@ export function TopBar({
       </button>
       <button type="button" className="search-trigger" onClick={onSearch} aria-label="Search" aria-keyshortcuts="Meta+K Control+K">
         <Search size={18} strokeWidth={1.5} aria-hidden="true" />
-        <span className="search-text">{session.role === "admin" ? "Search projects…" : "Search addresses…"}</span>
+        <span className="search-text">Search projects…</span>
         <span className="kbd" aria-hidden="true">
           ⌘K
         </span>
@@ -131,7 +130,7 @@ export function TopBar({
       <div className="ml-auto flex items-center gap-3">
         <ApiStatusDot />
         <ThemeToggle />
-        <UserMenu session={session} />
+        <UserMenu me={me} />
       </div>
     </header>
   );

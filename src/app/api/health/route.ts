@@ -1,3 +1,5 @@
-import { callUpstream, passThrough, route } from "@/server/upstream";
+import { forward } from "@/server/forward";
 
-export const GET = route({}, async () => passThrough(await callUpstream("GET", "/health/ready", {})));
+export function GET(request: Request) {
+  return forward(request, "/health/ready");
+}

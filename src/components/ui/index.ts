@@ -10,6 +10,7 @@ export * from "./menu";
 export * from "./mono-box";
 export * from "./no-access";
 export * from "./pill";
+export * from "./role-pill";
 export * from "./skeleton";
 export * from "./table";
 export * from "./tooltip";

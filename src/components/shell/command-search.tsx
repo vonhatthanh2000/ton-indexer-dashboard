@@ -4,11 +4,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { useProjects } from "@/features/admin/hooks";
-import { useMyProject } from "@/features/project/hooks";
-import { shorten } from "@/lib/format";
-import { toFriendly } from "@/lib/ton";
-import type { SessionInfo } from "@/lib/types";
+import type { Me } from "@/lib/types";
 
 interface Result {
   id: string;
@@ -17,43 +13,17 @@ interface Result {
   href: string;
 }
 
-function friendly(address: string): string {
-  try {
-    return toFriendly(address);
-  } catch {
-    return address;
-  }
-}
-
-function AdminResults({ query, onPick }: { query: string; onPick: (result: Result) => void }) {
-  const { data, isLoading } = useProjects();
+// Jumps to one of the user's projects (me.projects).
+function ProjectResults({ me, query, onPick }: { me: Me; query: string; onPick: (result: Result) => void }) {
   const results = useMemo(
     () =>
-      (data ?? [])
+      me.projects
         .filter((project) => project.name.toLowerCase().includes(query.trim().toLowerCase()))
         .slice(0, 8)
-        .map((project) => ({ id: project.id, label: project.name, href: `/admin/projects/${project.id}` })),
-    [data, query],
+        .map((project) => ({ id: project.id, label: project.name, href: `/projects/${project.id}` })),
+    [me.projects, query],
   );
-  return <ResultList results={results} loading={isLoading} onPick={onPick} empty="No projects match." />;
-}
-
-function ProjectResults({ query, onPick }: { query: string; onPick: (result: Result) => void }) {
-  const { data, isLoading } = useMyProject();
-  const results = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return (data?.addresses ?? [])
-      .map((row) => ({ raw: row.address, friendly: friendly(row.address) }))
-      .filter((row) => !needle || row.friendly.toLowerCase().includes(needle) || row.raw.toLowerCase().includes(needle))
-      .slice(0, 8)
-      .map((row) => ({
-        id: row.raw,
-        label: shorten(row.friendly, 8, 6),
-        mono: true,
-        href: `/project/transactions?address=${encodeURIComponent(row.friendly)}`,
-      }));
-  }, [data, query]);
-  return <ResultList results={results} loading={isLoading} onPick={onPick} empty="No addresses match." />;
+  return <ResultList results={results} loading={false} onPick={onPick} empty="No projects match." />;
 }
 
 function ResultList({
@@ -87,11 +57,11 @@ function ResultList({
 }
 
 export function CommandSearch({
-  session,
+  me,
   open,
   onOpenChange,
 }: {
-  session: SessionInfo;
+  me: Me;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -109,7 +79,7 @@ export function CommandSearch({
         <DialogPrimitive.Content className="dialog-panel dialog-panel-top fade-in">
           <DialogPrimitive.Title className="sr-only">Search</DialogPrimitive.Title>
           <DialogPrimitive.Description className="sr-only">
-            {session.role === "admin" ? "Jump to a project by name." : "Jump to an address."}
+            Jump to a project by name.
           </DialogPrimitive.Description>
           <div className="flex items-center gap-3 border-b border-line px-3 pb-3">
             <Search size={18} strokeWidth={1.5} aria-hidden="true" className="text-ink-2" />
@@ -117,17 +87,13 @@ export function CommandSearch({
               autoFocus
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={session.role === "admin" ? "Project name" : "Address (EQ…, UQ… or 0:…)"}
-              aria-label={session.role === "admin" ? "Search projects" : "Search addresses"}
+              placeholder="Project name"
+              aria-label="Search projects"
               className="h-11 w-full bg-transparent outline-none"
             />
           </div>
           <div className="mt-2 max-h-80 overflow-y-auto">
-            {session.role === "admin" ? (
-              <AdminResults query={query} onPick={pick} />
-            ) : (
-              <ProjectResults query={query} onPick={pick} />
-            )}
+            <ProjectResults me={me} query={query} onPick={pick} />
           </div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>

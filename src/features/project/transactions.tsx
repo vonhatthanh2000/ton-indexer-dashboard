@@ -12,10 +12,13 @@ import { Card, CardHeader, EmptyState, ErrorState, LoadMore, Select, SkeletonRow
 import { errorCode } from "@/lib/client";
 import { errorText } from "@/lib/errors";
 import { shorten } from "@/lib/format";
-import { toFriendly, toRaw } from "@/lib/ton";
+import { can } from "@/lib/roles";
+import { toRaw } from "@/lib/ton";
 import type { Transaction } from "@/lib/types";
-import { useMyProject, useTransactions } from "./hooks";
-import { FlowCell, Opcode } from "./tx-parts";
+import { NoAddressesYet } from "./dashboard";
+import { useProject, useTransactions } from "./hooks";
+import { useProjectScope } from "./scope";
+import { FlowCell, Opcode, friendly, projectBase } from "./tx-parts";
 
 function rawOf(address: string | null): string | null {
   if (!address) return null;
@@ -23,14 +26,6 @@ function rawOf(address: string | null): string | null {
     return toRaw(address);
   } catch {
     return null;
-  }
-}
-
-function friendly(address: string): string {
-  try {
-    return toFriendly(address);
-  } catch {
-    return address;
   }
 }
 
@@ -48,12 +43,13 @@ export function TransactionsPage() {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const project = useMyProject();
+  const { projectId, projectName, role } = useProjectScope();
+  const project = useProject(projectId);
   const addresses = useMemo(() => project.data?.addresses ?? [], [project.data]);
   const requested = rawOf(params.get("address"));
   const selected = addresses.find((row) => row.address === requested)?.address ?? addresses[0]?.address;
   const requestedUnknown = Boolean(params.get("address")) && project.isSuccess && !addresses.some((row) => row.address === requested);
-  const tx = useTransactions(selected);
+  const tx = useTransactions(projectId, selected);
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const rows = useMemo(() => tx.data?.pages.flat() ?? [], [tx.data]);
@@ -78,7 +74,7 @@ export function TransactionsPage() {
 
   return (
     <>
-      <PageHeader title="Transactions" crumbs={[{ label: "Dashboard", href: "/project" }, { label: "Transactions" }]} />
+      <PageHeader title="Transactions" crumbs={[{ label: projectName, href: projectBase(projectId) }, { label: "Transactions" }]} />
       <Card aria-labelledby="tx-title">
         <CardHeader
           title="Transactions"
@@ -116,7 +112,7 @@ export function TransactionsPage() {
         />
         {requestedUnknown ? (
           <p role="alert" className="mb-4 rounded-control bg-err-soft px-4 py-3 text-err">
-            {errorText({ code: "FORBIDDEN" })} Showing your first address instead.
+            {errorText({ code: "FORBIDDEN" })} Showing the first address instead.
           </p>
         ) : null}
         {project.isLoading || (tx.isLoading && Boolean(selected)) ? (
@@ -124,7 +120,7 @@ export function TransactionsPage() {
         ) : project.error ? (
           <ErrorState message={errorText({ code: errorCode(project.error) })} onRetry={() => void project.refetch()} />
         ) : addresses.length === 0 ? (
-          <EmptyState icon={Inbox} title="No addresses yet" body="Ask your admin to register them." />
+          <NoAddressesYet projectId={projectId} canWrite={can(role, "writeAddresses")} />
         ) : txError && rows.length === 0 ? (
           <ErrorState message={txError} onRetry={() => void tx.refetch()} />
         ) : rows.length === 0 ? (

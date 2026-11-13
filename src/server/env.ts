@@ -2,7 +2,6 @@ import { z } from "zod";
 
 const envSchema = z.object({
   OBSERVER_API_URL: z.url().default("http://localhost:3000"),
-  SESSION_SECRET: z.string().min(32),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -29,8 +28,7 @@ export function assertEnv(source: Record<string, string | undefined>): void {
     parseEnv(source);
   } catch (error) {
     if (error instanceof EnvError) {
-      const hint = error.variables.includes("SESSION_SECRET") ? " (SESSION_SECRET needs at least 32 characters)" : "";
-      console.error(`${error.message}${hint}`);
+      console.error(`${error.message} (OBSERVER_API_URL must be an http(s) URL)`);
       process.exit(1);
     }
     throw error;

@@ -3,29 +3,29 @@
 import { Radar } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Identicon } from "@/components/chain/identicon";
-import { NetworkPill } from "@/components/chain/values";
 import { Pill } from "@/components/ui/pill";
 import { Tooltip } from "@/components/ui/tooltip";
-import type { SessionInfo } from "@/lib/types";
-import { ADMIN_NAV, PROJECT_NAV, isActive } from "./nav";
+import type { Me } from "@/lib/types";
+import { isActive, navFor } from "./nav";
+import { ProjectSwitcher } from "./project-switcher";
 
 export function SidebarContent({
-  session,
+  me,
   collapsed,
   onNavigate,
 }: {
-  session: SessionInfo;
+  me: Me;
   collapsed: boolean;
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
-  const groups = session.role === "admin" ? ADMIN_NAV : PROJECT_NAV;
+  // Inside /projects/<id>/*: that project's pages and the switcher; elsewhere the top level.
+  const { projectId, groups } = navFor(pathname, me.user.isAdmin);
   return (
     <>
       <div className="flex h-10 items-center gap-3 px-3">
         <Link
-          href={session.role === "admin" ? "/admin" : "/project"}
+          href="/"
           className="flex items-center gap-3 font-bold"
           onClick={onNavigate}
           aria-label="ton-observer home"
@@ -35,23 +35,15 @@ export function SidebarContent({
           </span>
           <span className="collapsible-label text-card-title">ton-observer</span>
         </Link>
-        {session.role === "admin" ? (
+        {me.user.isAdmin ? (
           <span className="collapsible-label">
             <Pill tone="primary">Admin</Pill>
           </span>
         ) : null}
       </div>
 
-      {session.role === "project" ? (
-        <div className="card mt-6 flex items-center gap-3 p-3" aria-label="Project">
-          <Identicon seed={session.projectId ?? session.projectName ?? "project"} size={36} />
-          <div className="collapsible-label min-w-0">
-            <p className="truncate font-semibold">{session.projectName}</p>
-            <div className="mt-1">
-              <NetworkPill />
-            </div>
-          </div>
-        </div>
+      {projectId !== null ? (
+        <ProjectSwitcher projectId={projectId} projects={me.projects} collapsed={collapsed} onNavigate={onNavigate} />
       ) : null}
 
       <nav aria-label="Main">
