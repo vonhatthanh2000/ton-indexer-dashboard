@@ -1,9 +1,10 @@
 "use client";
 
-import { FolderPlus, Inbox, Search, UserCog } from "lucide-react";
+import { FolderPlus, Inbox, Pencil, Search, Trash2, UserCog } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState, type FormEvent } from "react";
 import { Identicon } from "@/components/chain/identicon";
+import { Menu } from "@/components/ui/menu";
 import { RelativeTime } from "@/components/chain/values";
 import { PageHeader } from "@/components/shell/page-header";
 import { Button, ButtonLink, Card, CardHeader, DataTable, Dialog, EmptyState, ErrorState, Field, Input, Pagination, Pill, SkeletonRows } from "@/components/ui";
@@ -14,20 +15,12 @@ import { exactNumber } from "@/lib/format";
 import { filterBy, paginate } from "@/lib/paging";
 import type { AdminProject } from "@/lib/types";
 import { useAdminProjects, useCreateProject } from "./hooks";
+import { DeleteProjectDialog, RenameProjectDialog, type ProjectRef } from "./project-actions";
+import { validateProjectName } from "./project-name";
+
+export { validateProjectName };
 
 const PAGE_SIZE = 10;
-const MAX_NAME = 64;
-const CONTROL = /\p{Cc}/u;
-
-/** The API's rule: 1 to 64 characters after trimming, no control characters. */
-export function validateProjectName(value: string): string | null {
-  const name = value.trim();
-  if (!name) return "Enter a project name.";
-  if ([...name].length > MAX_NAME) return `Name must be ${MAX_NAME} characters or fewer.`;
-  if (CONTROL.test(name)) return "Name can't contain control characters.";
-  return null;
-}
-
 type FieldName = "name" | "ownerEmail";
 type FormError = { field?: FieldName; text: string };
 
@@ -137,6 +130,8 @@ export function AdminProjects() {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [creating, setCreating] = useState(false);
+  const [renaming, setRenaming] = useState<ProjectRef | null>(null);
+  const [deleting, setDeleting] = useState<ProjectRef | null>(null);
   const filtered = useMemo(
     () => filterBy(data ?? [], query, (row) => [row.name, ...row.owners.map((owner) => owner.email)]),
     [data, query],
@@ -217,6 +212,21 @@ export function AdminProjects() {
                   cell: (row) => (row.hasApiKey ? <Pill tone="ok">Issued</Pill> : <Pill tone="neutral">None</Pill>),
                 },
                 { key: "created", header: "Created", cell: (row) => <RelativeTime iso={row.createdAt} /> },
+                {
+                  key: "actions",
+                  header: "Actions",
+                  cell: (row) => (
+                    <div className="text-right">
+                      <Menu
+                        label={`Actions for ${row.name}`}
+                        actions={[
+                          { label: "Rename", icon: Pencil, onSelect: () => setRenaming({ id: row.id, name: row.name }) },
+                          { label: "Delete", icon: Trash2, onSelect: () => setDeleting({ id: row.id, name: row.name }) },
+                        ]}
+                      />
+                    </div>
+                  ),
+                },
               ]}
             />
             <Pagination page={current.page} pageCount={current.pageCount} onPage={setPage} label="Projects pages" />
@@ -224,6 +234,12 @@ export function AdminProjects() {
         )}
       </Card>
       <NewProjectDialog open={creating} onOpenChange={setCreating} />
+      {renaming ? (
+        <RenameProjectDialog key={`rename-${renaming.id}`} project={renaming} open onOpenChange={(open) => !open && setRenaming(null)} />
+      ) : null}
+      {deleting ? (
+        <DeleteProjectDialog key={`delete-${deleting.id}`} project={deleting} open onOpenChange={(open) => !open && setDeleting(null)} />
+      ) : null}
     </>
   );
 }

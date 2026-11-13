@@ -6,6 +6,7 @@ import {
   toFriendly,
   toNonBounceable,
   toRaw,
+  tonviewerAddressUrl,
   tonviewerTxUrl,
 } from "@/lib/ton";
 
@@ -44,6 +45,13 @@ describe("nanoToTon", () => {
 describe("hashes", () => {
   it("converts base64 to hex for tonviewer", () => {
     expect(base64ToHex("AAEC/w==")).toBe("000102ff");
-    expect(tonviewerTxUrl("AAEC/w==")).toBe("https://tonviewer.com/transaction/000102ff");
+    expect(tonviewerTxUrl("AAEC/w==", "mainnet")).toBe("https://tonviewer.com/transaction/000102ff");
+  });
+  it("links to testnet Tonviewer unless NEXT_PUBLIC_TON_NETWORK is mainnet", () => {
+    // NEXT_PUBLIC_TON_NETWORK is unset in tests: the default is testnet.
+    expect(tonviewerTxUrl("AAEC/w==")).toBe("https://testnet.tonviewer.com/transaction/000102ff");
+    const raw = `0:${"0".repeat(64)}`;
+    expect(tonviewerAddressUrl(raw)).toMatch(/^https:\/\/testnet\.tonviewer\.com\/EQ/);
+    expect(tonviewerAddressUrl(raw, "mainnet")).toMatch(/^https:\/\/tonviewer\.com\/EQ/);
   });
 });

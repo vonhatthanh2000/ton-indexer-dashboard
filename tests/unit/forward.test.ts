@@ -87,6 +87,18 @@ describe("replies", () => {
     expect(reply.headers.getSetCookie()).toEqual([cookie]);
     expect(reply.body).toBeNull();
   });
+  it("forwards PATCH (admin rename) with its body; /auth/* has no PATCH", async () => {
+    const mock = upstream(Response.json({ project: { id: "p1", name: "New" } }));
+    const reply = await api.PATCH(
+      request("/api/projects/p1", { method: "PATCH", headers: { "content-type": "application/json", origin: BASE }, body: '{"name":"New"}' }),
+    );
+    expect(reply.status).toBe(200);
+    const { url, init } = sent(mock);
+    expect(url).toBe(`${API}/projects/p1`);
+    expect(init.method).toBe("PATCH");
+    expect(new TextDecoder().decode(init.body as ArrayBuffer | Uint8Array)).toBe('{"name":"New"}');
+    expect("PATCH" in auth).toBe(false);
+  });
   it("passes status, body and content-type through", async () => {
     upstream(Response.json({ error: "insufficient_role" }, { status: 403 }));
     const reply = await api.DELETE(request("/api/projects/p1/members/u1", { method: "DELETE" }));

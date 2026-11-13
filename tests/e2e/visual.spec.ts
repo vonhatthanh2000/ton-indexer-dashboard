@@ -19,7 +19,7 @@ const ROUTES: { path: string; name: string; users: FakeUser[] }[] = [
   { path: `${PROJECT}/addresses`, name: "project-addresses", users: ["owner", "viewer"] },
   { path: `${PROJECT}/transactions`, name: "project-transactions", users: ["viewer"] },
   { path: `${PROJECT}/members`, name: "project-members", users: ["owner", "viewer", "admin"] },
-  { path: `${PROJECT}/settings`, name: "project-settings", users: ["owner"] },
+  { path: `${PROJECT}/settings`, name: "project-settings", users: ["owner", "admin"] },
   { path: "/admin", name: "admin", users: ["admin"] },
   { path: "/admin/users", name: "admin-users", users: ["admin"] },
   { path: "/account", name: "account", users: ["editor"] },
@@ -127,3 +127,29 @@ async function expectNoSeriousAxe(page: Page, tag: string) {
     .map((violation) => `${violation.id}: ${violation.nodes.map((node) => node.target.join(" ")).slice(0, 3).join(" | ")}`);
   expect(serious, `${tag} axe`).toEqual([]);
 }
+
+// Admin rename and delete dialogs, opened from the /admin table's row menu.
+test("admin-project-dialogs-admin: rename and delete dialogs, no serious axe findings", async ({ page, context }) => {
+  test.setTimeout(90_000);
+  await signIn(context, "admin");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  for (const size of WIDTHS) {
+    await page.setViewportSize(size);
+    await page.goto("/admin");
+    await settle(page);
+    for (const action of ["Rename", "Delete"] as const) {
+      await page.getByRole("button", { name: /^Actions for / }).first().click();
+      await page.getByRole("menuitem", { name: action }).click();
+      const dialog = page.getByRole("dialog");
+      await expect(dialog).toBeVisible();
+      if (action === "Delete") await expect(dialog.getByRole("button", { name: "Delete project" })).toBeDisabled();
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, `${action} ${size.width} sideways scroll`).toBeLessThanOrEqual(0);
+      await page.screenshot({ path: `shots/admin-${action.toLowerCase()}-dialog-${size.width}-light.png` });
+      if (size.width === 1440) writeFileSync(`shots/html/admin-${action.toLowerCase()}-dialog.html`, await page.content());
+      await expectNoSeriousAxe(page, `admin-${action.toLowerCase()}-dialog-${size.width}`);
+      await dialog.getByRole("button", { name: "Cancel" }).click();
+      await expect(dialog).toBeHidden();
+    }
+  }
+});

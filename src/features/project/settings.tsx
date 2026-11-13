@@ -1,9 +1,10 @@
 "use client";
 
-import { KeyRound } from "lucide-react";
+import { KeyRound, Pencil, Trash2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { NetworkPill } from "@/components/chain/values";
+import { DeleteProjectDialog, RenameProjectDialog } from "@/features/admin/project-actions";
 import { PageHeader } from "@/components/shell/page-header";
 import { Button, Card, CardHeader, CopyButton, Dialog, RolePill } from "@/components/ui";
 import { errorCode } from "@/lib/client";
@@ -124,7 +125,37 @@ export function ProjectSettings() {
             <GenerateApiKey projectId={projectId} projectName={projectName} />
           </Card>
         ) : null}
+        {can(role, "manageProject", isAdmin) ? <ManageProject projectId={projectId} projectName={projectName} /> : null}
       </div>
     </>
+  );
+}
+
+/** Admins only: rename (links keep working) or delete the project. */
+function ManageProject({ projectId, projectName }: { projectId: string; projectName: string }) {
+  const [dialog, setDialog] = useState<"rename" | "delete" | null>(null);
+  const project = { id: projectId, name: projectName };
+  return (
+    <Card aria-labelledby="manage-project-title">
+      <CardHeader title="Manage project" titleId="manage-project-title" subtitle="Admins only" />
+      <div className="flex flex-col gap-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="min-w-0 flex-1 text-ink-2">Change the name. The id, key, members and addresses stay the same.</p>
+          <Button onClick={() => setDialog("rename")}>
+            <Pencil size={16} strokeWidth={1.5} aria-hidden="true" />
+            Rename
+          </Button>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5">
+          <p className="min-w-0 flex-1 text-ink-2">Delete the project, its members, address links and API key. It can&apos;t be undone.</p>
+          <Button variant="danger" onClick={() => setDialog("delete")}>
+            <Trash2 size={16} strokeWidth={1.5} aria-hidden="true" />
+            Delete project
+          </Button>
+        </div>
+      </div>
+      {dialog === "rename" ? <RenameProjectDialog key={`rename-${projectName}`} project={project} open onOpenChange={(open) => !open && setDialog(null)} /> : null}
+      {dialog === "delete" ? <DeleteProjectDialog project={project} open onOpenChange={(open) => !open && setDialog(null)} /> : null}
+    </Card>
   );
 }

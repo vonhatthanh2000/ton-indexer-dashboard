@@ -2,7 +2,7 @@
 // An action `can` denies is not rendered. The API still decides: a 403 shows its text.
 import type { ProjectRole } from "./types";
 
-export type Action = "writeAddresses" | "manageMembers" | "issueKey" | "resendInvite" | "addOwner";
+export type Action = "writeAddresses" | "manageMembers" | "issueKey" | "resendInvite" | "addOwner" | "manageProject";
 
 /**
  * `role` is the caller's role on the project from `me.projects` (undefined when not listed);
@@ -18,6 +18,7 @@ export function can(role: ProjectRole | null | undefined, action: Action, isAdmi
     case "resendInvite":
       return role === "owner" || role === "admin";
     case "addOwner":
+    case "manageProject": // rename, delete
       // The API checks only isAdmin, whatever the project role.
       return isAdmin;
   }

@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useSyncExternalStore } from "react";
 import { Tooltip } from "@/components/ui/tooltip";
 import { formatTon, fullTimestamp, groupDigits, relativeTime } from "@/lib/format";
+import { TON_NETWORK } from "@/lib/ton";
 
 export function TonAmount({ nano }: { nano: string | null }) {
   if (nano === null) return <span className="text-ink-2">—</span>;
@@ -57,7 +58,7 @@ export function NetworkPill() {
   return (
     <span className="pill pill-neutral">
       <Image src="/icons/ton.svg" alt="" width={14} height={14} />
-      TON
+      {TON_NETWORK === "mainnet" ? "TON mainnet" : "TON testnet"}
     </span>
   );
 }

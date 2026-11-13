@@ -9,6 +9,7 @@ const ALLOWED: Record<Action, (role: ProjectRole | undefined, isAdmin: boolean) 
   issueKey: (role) => role === "owner",
   resendInvite: (role) => role === "owner" || role === "admin",
   addOwner: (_role, isAdmin) => isAdmin,
+  manageProject: (_role, isAdmin) => isAdmin,
 };
 
 const ROLES: (ProjectRole | undefined)[] = ["owner", "editor", "viewer", "admin", undefined];

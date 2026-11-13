@@ -63,6 +63,7 @@ and passes `-H 127.0.0.1 -p $PORT`.
 |---|---|---|---|
 | `PORT` | no | `3100` | port for `pnpm dev` / `pnpm start` (ton-observer uses 3000). A shell value wins over `.env.local`, which wins over `.env`. |
 | `OBSERVER_API_URL` | no | `http://localhost:3000` | ton-observer base URL, used server-side only |
+| `NEXT_PUBLIC_TON_NETWORK` | no | `testnet` | `testnet` or `mainnet`: which Tonviewer the address and transaction links open (`testnet.tonviewer.com` or `tonviewer.com`). Read at build time, so on Vercel set it, then redeploy. |
 
 ## Checks
 

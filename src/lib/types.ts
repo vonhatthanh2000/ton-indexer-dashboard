@@ -74,6 +74,11 @@ export interface AdminProject {
   hasApiKey: boolean;
 }
 
+/** `PATCH /projects/:id` (admin rename). */
+export interface RenamedProjectReply {
+  project: { id: string; name: string; createdAt: string; startUtime: number };
+}
+
 /** `GET /projects` (admin). */
 export interface AdminProjectsReply {
   projects: AdminProject[];

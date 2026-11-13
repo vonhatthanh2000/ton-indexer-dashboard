@@ -16,11 +16,17 @@ function forms(address: string) {
   }
 }
 
-/** Address shown as EQ…; raw and UQ… in the tooltip; copy copies EQ…. */
-export function AddressChip({ address, href }: { address: string; href?: string }) {
+export type AddressFormat = "friendly" | "raw";
+
+/**
+ * Address shown as EQ… (default) or raw `0:HEX` (`format="raw"`), shortened; every form is in the
+ * tooltip, and copy copies the form shown, in full.
+ */
+export function AddressChip({ address, href, format = "friendly" }: { address: string; href?: string; format?: AddressFormat }) {
   const parsed = forms(address);
   if (!parsed) return <span className="mono text-ink-2">{shorten(address, 6, 4)}</span>;
-  const text = shorten(parsed.friendly, 4, 4);
+  const shown = format === "raw" ? parsed.raw : parsed.friendly;
+  const text = format === "raw" ? shorten(parsed.raw, 6, 4) : shorten(parsed.friendly, 4, 4);
   const tooltip = (
     <span className="mono block">
       <span className="block">{parsed.friendly}</span>
@@ -33,16 +39,16 @@ export function AddressChip({ address, href }: { address: string; href?: string 
       <Identicon seed={parsed.raw} />
       <Tooltip content={tooltip}>
         {href ? (
-          <Link href={href} className="mono link" aria-label={`Address ${parsed.friendly}`}>
+          <Link href={href} className="mono link" aria-label={`Address ${shown}`}>
             {text}
           </Link>
         ) : (
-          <span className="mono" tabIndex={0} aria-label={`Address ${parsed.friendly}`}>
+          <span className="mono" tabIndex={0} aria-label={`Address ${shown}`}>
             {text}
           </span>
         )}
       </Tooltip>
-      <CopyButton value={parsed.friendly} label="Copy address" />
+      <CopyButton value={shown} label="Copy address" />
       <a
         href={tonviewerAddressUrl(parsed.raw)}
         target="_blank"

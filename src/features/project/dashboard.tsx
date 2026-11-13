@@ -15,7 +15,7 @@ import { can } from "@/lib/roles";
 import type { Transaction } from "@/lib/types";
 import { useLatestFeed, useProject } from "./hooks";
 import { useProjectScope } from "./scope";
-import { FlowCell, projectBase, txHref } from "./tx-parts";
+import { DestinationCell, SenderCell, projectBase, txHref } from "./tx-parts";
 
 /** "No addresses yet": a writer gets a link to register them, everyone else whom to ask. */
 export function NoAddressesYet({ projectId, canWrite }: { projectId: string; canWrite: boolean }) {
@@ -85,7 +85,8 @@ export function ProjectDashboard() {
             columns={[
               { key: "address", header: "Address", cell: (row) => <AddressChip address={row.account} href={txHref(projectId, row.account)} /> },
               { key: "hash", header: "Tx hash", cell: (row) => <HashChip hash={row.hash} /> },
-              { key: "flow", header: "From → Out", cell: (row) => <FlowCell tx={row} /> },
+              { key: "sender", header: "Sender", cell: (row) => <SenderCell tx={row} /> },
+              { key: "destination", header: "Destination", cell: (row) => <DestinationCell tx={row} /> },
               { key: "value", header: "Value", cell: (row) => <TonAmount nano={row.value} /> },
               { key: "status", header: "Status", cell: (row) => <TxStatusPill aborted={row.aborted} /> },
               { key: "time", header: "Time", cell: (row) => <RelativeTime iso={row.time} /> },

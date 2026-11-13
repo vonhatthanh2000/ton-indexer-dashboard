@@ -54,10 +54,22 @@ export function base64ToHex(value: string): string {
   return hex;
 }
 
-export function tonviewerAddressUrl(address: string): string {
-  return `https://tonviewer.com/${toFriendly(address)}`;
+export type TonNetwork = "testnet" | "mainnet";
+
+/**
+ * The chain ton-observer indexes, from `NEXT_PUBLIC_TON_NETWORK` (inlined at build time, so a change
+ * needs a rebuild/redeploy). Anything but "mainnet" means testnet.
+ */
+export const TON_NETWORK: TonNetwork = process.env.NEXT_PUBLIC_TON_NETWORK === "mainnet" ? "mainnet" : "testnet";
+
+export function tonviewerBase(network: TonNetwork = TON_NETWORK): string {
+  return network === "mainnet" ? "https://tonviewer.com" : "https://testnet.tonviewer.com";
 }
 
-export function tonviewerTxUrl(hashBase64: string): string {
-  return `https://tonviewer.com/transaction/${base64ToHex(hashBase64)}`;
+export function tonviewerAddressUrl(address: string, network: TonNetwork = TON_NETWORK): string {
+  return `${tonviewerBase(network)}/${toFriendly(address)}`;
+}
+
+export function tonviewerTxUrl(hashBase64: string, network: TonNetwork = TON_NETWORK): string {
+  return `${tonviewerBase(network)}/transaction/${base64ToHex(hashBase64)}`;
 }

@@ -5,4 +5,5 @@ import { forwardApi } from "@/server/forward";
 export const GET = forwardApi;
 export const POST = forwardApi;
 export const PUT = forwardApi;
+export const PATCH = forwardApi;
 export const DELETE = forwardApi;

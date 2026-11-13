@@ -18,7 +18,7 @@ import type { Transaction } from "@/lib/types";
 import { NoAddressesYet } from "./dashboard";
 import { useProject, useProjectTransactions, useTransactions } from "./hooks";
 import { useProjectScope } from "./scope";
-import { FlowCell, Opcode, friendly, projectBase, txHref } from "./tx-parts";
+import { DestinationCell, Opcode, SenderCell, friendly, projectBase, txHref } from "./tx-parts";
 
 function rawOf(address: string | null): string | null {
   if (!address) return null;
@@ -97,7 +97,7 @@ export function TransactionsPage() {
                     <option value="">All addresses</option>
                     {addresses.map((row) => (
                       <option key={row.address} value={row.address}>
-                        {shorten(friendly(row.address), 8, 6)}
+                        {shorten(row.address, 8, 6)}
                       </option>
                     ))}
                   </Select>
@@ -136,7 +136,7 @@ export function TransactionsPage() {
           <>
             {selected ? (
               <p className="mb-2 flex flex-wrap items-center gap-2 text-ink-2">
-                Showing <AddressChip address={selected} />
+                Showing <AddressChip address={selected} format="raw" />
               </p>
             ) : null}
             <div className="table-scroll">
@@ -147,7 +147,8 @@ export function TransactionsPage() {
                     {selected ? null : <th scope="col">Address</th>}
                     <th scope="col">Tx hash</th>
                     <th scope="col">Time</th>
-                    <th scope="col">From → Out</th>
+                    <th scope="col">Sender</th>
+                    <th scope="col">Destination</th>
                     <th scope="col">Value</th>
                     <th scope="col">Fee</th>
                     <th scope="col">Opcode</th>
@@ -166,11 +167,12 @@ export function TransactionsPage() {
                       <Fragment key={rowKey}>
                         <tr>
                           {selected ? null : (
-                            <td><AddressChip address={row.account} href={txHref(projectId, row.account)} /></td>
+                            <td><AddressChip address={row.account} href={txHref(projectId, row.account)} format="raw" /></td>
                           )}
                           <td><HashChip hash={row.hash} /></td>
                           <td><RelativeTime iso={row.time} /></td>
-                          <td><FlowCell tx={row} /></td>
+                          <td><SenderCell tx={row} format="raw" /></td>
+                          <td><DestinationCell tx={row} format="raw" /></td>
                           <td><TonAmount nano={row.value} /></td>
                           <td><TonAmount nano={row.fee} /></td>
                           <td><Opcode value={row.inMsgOpcode} /></td>
@@ -190,7 +192,7 @@ export function TransactionsPage() {
                         </tr>
                         {open ? (
                           <tr id={detailId}>
-                            <td colSpan={selected ? 8 : 9} className="bg-surface-2">
+                            <td colSpan={selected ? 9 : 10} className="bg-surface-2">
                               <TxDetail tx={row} />
                             </td>
                           </tr>
@@ -240,7 +242,7 @@ function TxDetail({ tx }: { tx: Transaction }) {
           <ul className="mt-1 flex flex-col gap-2">
             {tx.outMsgs.map((message, index) => (
               <li key={index} className="flex flex-wrap items-center gap-x-6 gap-y-1">
-                {message.destination ? <AddressChip address={message.destination} /> : <span className="text-ink-2">external out</span>}
+                {message.destination ? <AddressChip address={message.destination} format="raw" /> : <span className="text-ink-2">external out</span>}
                 <TonAmount nano={message.value} />
                 <Opcode value={message.opcode} />
               </li>

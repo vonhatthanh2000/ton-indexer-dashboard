@@ -174,6 +174,9 @@ describe("<TransactionsPage>", () => {
     setup(me("viewer"), <TransactionsPage />);
     await waitFor(() => expect(screen.getByRole("columnheader", { name: "Address" })).toBeTruthy());
     expect((screen.getByLabelText("Address") as HTMLSelectElement).value).toBe("");
+    // Addresses on this page are raw `0:HEX`, shortened; the full raw form is the accessible name.
+    expect(screen.getAllByText("0:AAAA…AAAA").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: `Address ${ADDRESS}` }).length).toBeGreaterThan(0);
     expect(screen.getByText(/across every address\. Updates every 5 seconds\./)).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Load older transactions" }));
     await waitFor(() => expect(screen.getByText("No older transactions.")).toBeTruthy());
@@ -361,6 +364,27 @@ describe("<ProjectSettings>", () => {
     setup(me("viewer"), <ProjectSettings />);
     expect(screen.getByText(PID)).toBeTruthy();
     expect(screen.getByText("Network")).toBeTruthy();
+  });
+
+  it("Manage project (rename, delete) shows only for admins", () => {
+    setup(me("owner"), <ProjectSettings />);
+    expect(screen.queryByRole("heading", { name: "Manage project" })).toBeNull();
+    cleanup();
+    setup(me("admin", true), <ProjectSettings />);
+    expect(screen.getByRole("heading", { name: "Manage project" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Rename" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Delete project" })).toBeTruthy();
+  });
+
+  it("deleting from inside the project leaves for /admin", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (path: string) => (path === "/auth/me" ? Response.json(me(null, true)) : new Response(null, { status: 204 }))));
+    setup(me("admin", true), <ProjectSettings />);
+    await userEvent.click(screen.getByRole("button", { name: "Delete project" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByLabelText("Type Alpha to confirm"), "Alpha");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete project" }));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith("/admin"));
+    expect(toast.success).toHaveBeenCalledWith("Project Alpha deleted.");
   });
 
   it("as editor: no Generate API key", () => {

@@ -28,9 +28,14 @@ export class GqlError extends Error {
 }
 
 export interface ApiFetchOptions {
-  method?: "GET" | "POST" | "PUT" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   signal?: AbortSignal;
+  /**
+   * By default a 404 `project_not_found` refetches ["me"] and leaves for `/`. Admin actions on a
+   * project (rename, delete) set this to stay put and refresh their own list instead.
+   */
+  stayOnProjectGone?: boolean;
 }
 
 /** Side effects of an error reply; `ClientEffectsBridge` wires the router and the query client. */
@@ -95,9 +100,9 @@ function projectGone(): void {
 
 // Any 401 but a wrong password means the session is gone (not_logged_in, missing_api_key and
 // missing_admin_key all reach here when the cookie expired).
-function handleError(error: ApiError): ApiError {
+function handleError(error: ApiError, options: ApiFetchOptions = {}): ApiError {
   if (error.status === 401 && error.code !== "invalid_credentials") signedOut();
-  else if (error.status === 404 && error.code === "project_not_found") projectGone();
+  else if (error.status === 404 && error.code === "project_not_found" && !options.stayOnProjectGone) projectGone();
   return error;
 }
 
@@ -136,7 +141,7 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
   const response = await send(path, options);
   const body = await readBody(response);
   if (response.ok) return body as T;
-  throw handleError(toApiError(response.status, body));
+  throw handleError(toApiError(response.status, body), options);
 }
 
 interface GraphqlReply<T> {

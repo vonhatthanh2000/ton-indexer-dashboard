@@ -64,6 +64,12 @@ describe("apiFetch", () => {
     expect(push).toHaveBeenCalledWith("/");
     expect(navigate).not.toHaveBeenCalled();
   });
+  it("stayOnProjectGone: a 404 project_not_found throws without leaving the page", async () => {
+    reply(404, { error: "project_not_found" });
+    await expect(apiFetch("/api/projects/p1", { method: "DELETE", stayOnProjectGone: true })).rejects.toMatchObject({ code: "project_not_found" });
+    expect(invalidateMe).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+  });
   it("a 403 bad_origin throws with that code", async () => {
     reply(403, { error: "bad_origin" });
     await expect(apiFetch("/api/projects/p1/addresses", { method: "POST", body: {} })).rejects.toMatchObject({ status: 403, code: "bad_origin" });

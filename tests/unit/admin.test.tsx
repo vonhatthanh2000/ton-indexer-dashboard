@@ -137,6 +137,88 @@ describe("<AdminProjects>", () => {
   });
 });
 
+describe("rename and delete a project", () => {
+  /** `/auth/me` answers as an admin with no projects; every other call gets `reply`. */
+  function api(reply: () => Response) {
+    const mock = vi.fn(async (path: string) => (path === "/auth/me" ? Response.json(me(true)) : reply()));
+    vi.stubGlobal("fetch", mock);
+    return mock;
+  }
+  function calls(mock: ReturnType<typeof api>) {
+    return (mock.mock.calls as unknown as [string, RequestInit][]).filter(([path]) => path !== "/auth/me");
+  }
+  async function openAction(projectName: string, action: "Rename" | "Delete") {
+    await userEvent.click(screen.getByRole("button", { name: `Actions for ${projectName}` }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: action }));
+    return screen.findByRole("dialog");
+  }
+
+  it("rename: PATCH {name} only, then refreshes admin projects and me", async () => {
+    const fetchMock = api(() => Response.json({ project: { id: "p1", name: "Alpha 2", createdAt: "", startUtime: 1 } }));
+    const client = setup(me(true), <AdminProjects />, PROJECTS);
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    const dialog = await openAction("Alpha", "Rename");
+    const input = within(dialog).getByLabelText("Project name") as HTMLInputElement;
+    expect(input.value).toBe("Alpha");
+    await userEvent.clear(input);
+    await userEvent.type(input, "  Alpha 2 ");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Rename" }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Project renamed to Alpha 2."));
+    const [url, init] = calls(fetchMock)[0];
+    expect(url).toBe("/api/projects/p1");
+    expect(init.method).toBe("PATCH");
+    expect(JSON.parse(String(init.body))).toEqual({ name: "Alpha 2" });
+    const keys = invalidate.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey));
+    expect(keys).toEqual(expect.arrayContaining([JSON.stringify(adminKeys.projects), JSON.stringify(["me"]), JSON.stringify(["project", "p1", "info"])]));
+  });
+
+  it("rename: an unchanged name closes without a call; a taken name shows next to the field", async () => {
+    const fetchMock = api(() => Response.json({ error: "project_exists" }, { status: 409 }));
+    setup(me(true), <AdminProjects />, PROJECTS);
+    let dialog = await openAction("Alpha", "Rename");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Rename" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(calls(fetchMock)).toHaveLength(0);
+    dialog = await openAction("Alpha", "Rename");
+    const input = within(dialog).getByLabelText("Project name");
+    await userEvent.clear(input);
+    await userEvent.type(input, "Beta");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Rename" }));
+    await waitFor(() => expect(within(dialog).getByText("A project with this name already exists.")).toBeTruthy());
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+  });
+
+  it("delete: enabled only after typing the exact name; DELETE then drops it from the list", async () => {
+    const fetchMock = api(() => new Response(null, { status: 204 }));
+    setup(me(true), <AdminProjects />, PROJECTS);
+    const dialog = await openAction("Alpha", "Delete");
+    expect(within(dialog).getByText(/Addresses and their indexed transactions/)).toBeTruthy();
+    const confirm = within(dialog).getByRole("button", { name: "Delete project" }) as HTMLButtonElement;
+    const input = within(dialog).getByLabelText("Type Alpha to confirm");
+    await userEvent.type(input, "alpha");
+    expect(confirm.disabled).toBe(true);
+    await userEvent.clear(input);
+    await userEvent.type(input, "Alpha");
+    expect(confirm.disabled).toBe(false);
+    await userEvent.click(confirm);
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Project Alpha deleted."));
+    const [url, init] = calls(fetchMock)[0];
+    expect([url, init.method]).toEqual(["/api/projects/p1", "DELETE"]);
+    await waitFor(() => expect(screen.queryByRole("link", { name: "Alpha" })).toBeNull());
+    expect(router.push).not.toHaveBeenCalled(); // on /admin: nothing to leave
+  });
+
+  it("delete: a 404 means already deleted; it stays on the page and drops the row", async () => {
+    api(() => Response.json({ error: "project_not_found" }, { status: 404 }));
+    setup(me(true), <AdminProjects />, PROJECTS);
+    const dialog = await openAction("Beta", "Delete");
+    await userEvent.type(within(dialog).getByLabelText("Type Beta to confirm"), "Beta");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Delete project" }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Beta was already deleted."));
+    expect(router.push).not.toHaveBeenCalled();
+  });
+});
+
 describe("<AdminUsers>", () => {
   it.each([201, 200])("add admin: POST {email, isAdmin: true}; %i counts as success", async (status) => {
     const fetchMock = vi.fn(async () =>
